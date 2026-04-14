@@ -1,0 +1,38 @@
+﻿{
+  "player": {
+    "pickupRadius": 72,
+    "playerAcceleration": 900,
+    "playerMaxSpeed": 260,
+    "baseCarryCapacity": 5
+  },
+  "processing": {
+    "inputPerBatch": 2,
+    "outputPerBatch": 1,
+    "baseProcessTimeSec": 3.0
+  },
+  "sell": {
+    "processedUnitPrice": 10
+  },
+  "zones": [
+    { "id": 1, "unlockPrice": 0 },
+    { "id": 2, "unlockPrice": 250 },
+    { "id": 3, "unlockPrice": 900 }
+  ],
+  "upgrades": {
+    "moveSpeed": {
+      "basePrice": 150,
+      "priceMultiplier": 1.7,
+      "maxSpeedDeltaPerLevel": 20
+    },
+    "carryCapacity": {
+      "basePrice": 120,
+      "priceMultiplier": 1.8,
+      "capacityDeltaPerLevel": 1
+    },
+    "processingSpeed": {
+      "basePrice": 200,
+      "priceMultiplier": 1.9,
+      "timeMultiplierPerLevel": 0.9
+    }
+  }
+}
