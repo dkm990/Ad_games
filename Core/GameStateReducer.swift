@@ -114,8 +114,18 @@ public final class GameStateReducer {
             return
         }
 
+        if state.processedInventory > 0 {
+            state.guidanceState = GuidanceState(target: .goSellZone)
+            return
+        }
+
         if state.carryAmount > 0 {
             state.guidanceState = GuidanceState(target: .goProcessorInput)
+            return
+        }
+
+        if let nextZone = nextLockedZone(), state.coins >= nextZone.unlockPrice {
+            state.guidanceState = GuidanceState(target: .unlockGate, zoneID: nextZone.id)
             return
         }
 
