@@ -72,7 +72,9 @@ public final class GameStateReducer {
     }
 
     public var effectiveCarryCapacity: Int {
-        config.player.baseCarryCapacity + (state.upgrades.carryCapacity * config.upgrades.carryCapacity.capacityDeltaPerLevel)
+        let level = state.upgrades.carryCapacity
+        let firstLevelBonus = level > 0 ? 1 : 0
+        return config.player.baseCarryCapacity + (level * config.upgrades.carryCapacity.capacityDeltaPerLevel) + firstLevelBonus
     }
 
     public var effectiveProcessTimeSec: Double {

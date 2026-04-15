@@ -44,7 +44,6 @@ final class GamePlayScene: SKScene {
 
     private var touchLocationInCamera: CGPoint?
     private var velocity: CGVector = .zero
-    private var currentMoveDirection: CGVector = .zero
     private var lastUpdateTime: TimeInterval = 0
     private var lastPickupCheckTime: TimeInterval = 0
     private var lastDepositTime: TimeInterval = 0
@@ -52,11 +51,14 @@ final class GamePlayScene: SKScene {
     private var lastSellTime: TimeInterval = 0
     private var lastGateAttemptTime: [Int: TimeInterval] = [:]
     private var currentPrimaryTargetID: Int?
+    private var unlockFocusZoneID: Int?
+    private var unlockFocusUntil: TimeInterval?
+    private var shownZoneBonus: Set<Int> = []
 
     private var tunedPlayerAcceleration: CGFloat
     private var tunedPlayerMaxSpeed: CGFloat
     private var tunedPickupRadius: CGFloat
-    private var tunedCameraFollowSmoothing: CGFloat = 8.0
+    private var tunedCameraFollowSmoothing: CGFloat = 0.18
 
     private var processingTimeRemaining: TimeInterval = 0
     private var currentBatchTotalTime: TimeInterval = 0
@@ -187,6 +189,7 @@ final class GamePlayScene: SKScene {
         updateCamera(dt: dt)
         updateResourceRespawns(currentTime: currentTime)
         runPickupIfNeeded(currentTime: currentTime)
+        runZoneBonusEntryFeedback()
         runProcessorInteractions(currentTime: currentTime)
         runSellInteractions(currentTime: currentTime)
         runUnlockInteractions(currentTime: currentTime)
@@ -274,10 +277,18 @@ final class GamePlayScene: SKScene {
             (100, CGPoint(x: -340, y: 220), 1),
             (101, CGPoint(x: -180, y: 260), 1),
             (102, CGPoint(x: -30, y: 210), 1),
-            (200, CGPoint(x: 230, y: 220), 2),
-            (201, CGPoint(x: 340, y: 130), 2),
-            (300, CGPoint(x: 470, y: 220), 3),
-            (301, CGPoint(x: 600, y: 140), 3)
+            (200, CGPoint(x: 60, y: 20), 2),
+            (201, CGPoint(x: 95, y: 35), 2),
+            (202, CGPoint(x: 115, y: -5), 2),
+            (203, CGPoint(x: 140, y: 20), 2),
+            (204, CGPoint(x: 160, y: -20), 2),
+            (300, CGPoint(x: -10, y: -5), 3),
+            (301, CGPoint(x: 15, y: 12), 3),
+            (302, CGPoint(x: 35, y: -12), 3),
+            (303, CGPoint(x: 55, y: 8), 3),
+            (304, CGPoint(x: 72, y: -16), 3),
+            (305, CGPoint(x: 88, y: 6), 3),
+            (306, CGPoint(x: 102, y: -8), 3)
         ]
 
         for (id, point, zoneID) in items {
@@ -645,13 +656,17 @@ final class GamePlayScene: SKScene {
         let after = orchestrator.sessionState
 
         let changed: Bool
+        let feedbackText: String
         switch type {
         case .moveSpeed:
             changed = after.upgrades.moveSpeed > before.upgrades.moveSpeed
+            feedbackText = "speed++"
         case .carryCapacity:
             changed = after.upgrades.carryCapacity > before.upgrades.carryCapacity
+            feedbackText = "carry++"
         case .processingSpeed:
             changed = after.upgrades.processingSpeed > before.upgrades.processingSpeed
+            feedbackText = "process++"
         }
 
         if changed {
@@ -659,7 +674,7 @@ final class GamePlayScene: SKScene {
             sessionMetrics.upgradesPurchased += 1
             sessionMetrics.coinsSpent += spent
             flashZone(upgradesPanelNode, color: UIColor(red: 0.35, green: 0.72, blue: 0.35, alpha: 0.9))
-            showFloatingText(text: "Upgrade purchased", color: UIColor(red: 0.72, green: 1.0, blue: 0.72, alpha: 1), at: player.position)
+            showFloatingText(text: feedbackText, color: UIColor(red: 0.72, green: 1.0, blue: 0.72, alpha: 1), at: player.position)
         } else {
             flashZone(upgradesPanelNode, color: UIColor(red: 0.72, green: 0.26, blue: 0.26, alpha: 0.9))
             showFloatingText(text: "Not enough coins", color: UIColor(red: 1.0, green: 0.6, blue: 0.6, alpha: 1), at: player.position)
@@ -694,7 +709,7 @@ final class GamePlayScene: SKScene {
     }
 
     private func updateMovement(dt: TimeInterval) {
-        let acceleration = tunedPlayerAcceleration
+        _ = dt
         let upgradeSpeedBonus = CGFloat(orchestrator.sessionState.upgrades.moveSpeed) * CGFloat(config.upgrades.moveSpeed.maxSpeedDeltaPerLevel)
         let maxSpeed = max(120, tunedPlayerMaxSpeed + upgradeSpeedBonus)
 
@@ -713,36 +728,24 @@ final class GamePlayScene: SKScene {
             desiredDirection = .zero
         }
 
-        let blend: CGFloat = desiredDirection == .zero ? 0.18 : 0.32
-        currentMoveDirection.dx += (desiredDirection.dx - currentMoveDirection.dx) * blend
-        currentMoveDirection.dy += (desiredDirection.dy - currentMoveDirection.dy) * blend
-
-        if abs(currentMoveDirection.dx) < 0.01 { currentMoveDirection.dx = 0 }
-        if abs(currentMoveDirection.dy) < 0.01 { currentMoveDirection.dy = 0 }
-
-        if currentMoveDirection == .zero {
-            velocity.dx *= 0.86
-            velocity.dy *= 0.86
-            if abs(velocity.dx) < 1 { velocity.dx = 0 }
-            if abs(velocity.dy) < 1 { velocity.dy = 0 }
+        if desiredDirection == .zero {
+            velocity = .zero
         } else {
-            velocity.dx += currentMoveDirection.dx * acceleration * CGFloat(dt)
-            velocity.dy += currentMoveDirection.dy * acceleration * CGFloat(dt)
-            let speed = sqrt(velocity.dx * velocity.dx + velocity.dy * velocity.dy)
-            if speed > maxSpeed {
-                let k = maxSpeed / speed
-                velocity.dx *= k
-                velocity.dy *= k
-            }
+            velocity.dx = desiredDirection.dx * maxSpeed
+            velocity.dy = desiredDirection.dy * maxSpeed
         }
 
         player.physicsBody?.velocity = velocity
     }
 
     private func updateCamera(dt: TimeInterval) {
-        let followStrength: CGFloat = min(1, CGFloat(dt) * tunedCameraFollowSmoothing)
+        let followStrength: CGFloat = max(0.15, 1.0 - tunedCameraFollowSmoothing)
         cameraNode.position.x += (player.position.x - cameraNode.position.x) * followStrength
         cameraNode.position.y += (player.position.y - cameraNode.position.y) * followStrength
+
+        if dt > 0, player.position.distance(to: cameraNode.position) < 0.6 {
+            cameraNode.position = player.position
+        }
     }
 
     private func runPickupIfNeeded(currentTime: TimeInterval) {
@@ -766,13 +769,94 @@ final class GamePlayScene: SKScene {
         guard let (id, node) = nearest else { return }
         guard player.position.distance(to: node.position) <= tunedPickupRadius else { return }
 
-        orchestrator.perform(.collectRaw(units: 1))
-        registerCollect(units: 1, currentTime: currentTime)
-        node.isHidden = true
+        let zoneID = resourceZoneByID[id] ?? 1
+        let pickupUnits = pickupMultiplier(for: zoneID)
+        let beforeCollect = orchestrator.sessionState
+
+        orchestrator.perform(.collectRaw(units: pickupUnits))
+        let afterCollect = orchestrator.sessionState
+        let acceptedToCarry = max(0, afterCollect.carryAmount - beforeCollect.carryAmount)
+        let overflow = max(0, pickupUnits - acceptedToCarry)
+        registerCollect(units: pickupUnits, fromZoneID: zoneID, currentTime: currentTime)
+
+        if overflow > 0, player.position.distance(to: processorInputZoneNode.position) <= 72 {
+            let carryBeforeDeposit = orchestrator.sessionState.carryAmount
+            orchestrator.perform(.depositRawForProcessing(units: overflow))
+            let carryAfterDeposit = orchestrator.sessionState.carryAmount
+            let deposited = max(0, carryBeforeDeposit - carryAfterDeposit)
+            if deposited > 0 {
+                registerDeposit(units: deposited)
+                flashZone(processorInputZoneNode, color: UIColor(red: 0.45, green: 0.75, blue: 1.0, alpha: 0.60))
+                showFloatingText(
+                    text: "auto queue +\(deposited)",
+                    color: UIColor(red: 0.70, green: 0.90, blue: 1.0, alpha: 1),
+                    at: CGPoint(x: processorInputZoneNode.position.x, y: processorInputZoneNode.position.y + 10)
+                )
+            }
+        }
+
         interactionZoneNodes[id]?.isHidden = true
         resourceRespawnTime[id] = currentTime + 2.0
 
-        showFloatingText(text: "+1", color: UIColor(red: 1, green: 0.86, blue: 0.2, alpha: 1), at: node.position)
+        playPickupFeedback(for: node)
+        showFloatingText(text: "+\(pickupUnits)", color: UIColor(red: 1, green: 0.86, blue: 0.2, alpha: 1), at: node.position)
+        if pickupUnits > 1 {
+            showFloatingText(
+                text: "x\(pickupUnits) pickup",
+                color: UIColor(red: 0.88, green: 1.0, blue: 0.78, alpha: 1),
+                at: CGPoint(x: node.position.x, y: node.position.y + 14)
+            )
+        }
+    }
+
+    private func pickupMultiplier(for zoneID: Int) -> Int {
+        switch zoneID {
+        case 2:
+            return 2
+        case 3:
+            return 3
+        default:
+            return 1
+        }
+    }
+
+    private func playPickupFeedback(for node: SKShapeNode) {
+        let originalFill = node.fillColor
+        let pulseUp = SKAction.scale(to: 1.24, duration: 0.06)
+        let pulseDown = SKAction.scale(to: 1.0, duration: 0.06)
+        let flashIn = SKAction.run { node.fillColor = UIColor(red: 1.0, green: 0.93, blue: 0.48, alpha: 1) }
+        let flashOut = SKAction.run { node.fillColor = originalFill }
+        let hide = SKAction.run { node.isHidden = true }
+        node.removeAction(forKey: "pickupFeedback")
+        node.run(SKAction.sequence([flashIn, pulseUp, pulseDown, flashOut, hide]), withKey: "pickupFeedback")
+    }
+
+    private func runZoneBonusEntryFeedback() {
+        let state = orchestrator.sessionState
+        for zoneID in [2, 3] {
+            guard state.unlockedZoneIDs.contains(zoneID) else { continue }
+            guard shownZoneBonus.contains(zoneID) == false else { continue }
+
+            let nearest = resourceNodes
+                .filter { id, node in
+                    guard !node.isHidden else { return false }
+                    return resourceZoneByID[id] == zoneID
+                }
+                .min { lhs, rhs in
+                    player.position.distanceSquared(to: lhs.value.position) < player.position.distanceSquared(to: rhs.value.position)
+                }
+
+            guard let (_, node) = nearest else { continue }
+            guard player.position.distance(to: node.position) <= 110 else { continue }
+
+            shownZoneBonus.insert(zoneID)
+            let bonusText = zoneID == 2 ? "ZONE BONUS x2" : "ZONE BONUS x3"
+            showFloatingText(
+                text: bonusText,
+                color: UIColor(red: 0.90, green: 1.0, blue: 0.78, alpha: 1),
+                at: CGPoint(x: node.position.x, y: node.position.y + 20)
+            )
+        }
     }
 
     private func runProcessorInteractions(currentTime: TimeInterval) {
@@ -836,15 +920,27 @@ final class GamePlayScene: SKScene {
                 if after.unlockedZoneIDs.contains(zone.id) {
                     sessionMetrics.zonesUnlocked += 1
                     sessionMetrics.coinsSpent += max(0, before.coins - after.coins)
+                    unlockFocusZoneID = zone.id
+                    unlockFocusUntil = currentTime + 10.0
                     applyUnlockVisualStateFromSession()
                     flashZone(gate, color: UIColor(red: 0.62, green: 1.0, blue: 0.62, alpha: 0.85))
-                    showFloatingText(text: "Zone \(zone.id) unlocked", color: UIColor(red: 0.78, green: 1.0, blue: 0.78, alpha: 1), at: gate.position)
+                    playUnlockReveal(for: gate)
+                    showFloatingText(text: "NEW AREA OPENED", color: UIColor(red: 0.78, green: 1.0, blue: 0.78, alpha: 1), at: CGPoint(x: gate.position.x, y: gate.position.y + 16))
+                    showFloatingText(text: "new resources unlocked", color: UIColor(red: 0.85, green: 1.0, blue: 0.85, alpha: 1), at: CGPoint(x: gate.position.x, y: gate.position.y - 8))
+                    showFloatingText(text: "FASTER COLLECTION AREA", color: UIColor(red: 0.92, green: 1.0, blue: 0.8, alpha: 1), at: CGPoint(x: gate.position.x, y: gate.position.y - 30))
                 }
             } else {
                 flashZone(gate, color: UIColor(red: 1.0, green: 0.45, blue: 0.45, alpha: 0.85))
                 showFloatingText(text: "Need \(zone.unlockPrice)", color: UIColor(red: 1.0, green: 0.64, blue: 0.64, alpha: 1), at: gate.position)
             }
         }
+    }
+
+    private func playUnlockReveal(for gate: SKShapeNode) {
+        gate.removeAction(forKey: "unlockReveal")
+        let up = SKAction.scale(to: 1.16, duration: 0.10)
+        let down = SKAction.scale(to: 1.0, duration: 0.10)
+        gate.run(SKAction.sequence([up, down]), withKey: "unlockReveal")
     }
 
     private func updateProcessingLifecycle(dt: TimeInterval) {
@@ -864,9 +960,13 @@ final class GamePlayScene: SKScene {
         }
     }
 
-    private func registerCollect(units: Int, currentTime: TimeInterval) {
+    private func registerCollect(units: Int, fromZoneID: Int, currentTime: TimeInterval) {
         guard units > 0 else { return }
         sessionMetrics.resourcesCollected += units
+        if unlockFocusZoneID == fromZoneID {
+            unlockFocusZoneID = nil
+            unlockFocusUntil = nil
+        }
         if sessionMetrics.loopStage == .awaitCollect {
             sessionMetrics.loopStage = .awaitDeposit
             sessionMetrics.currentLoopStartTime = currentTime
@@ -1028,6 +1128,10 @@ final class GamePlayScene: SKScene {
     private func updateHighlighting() {
         let guidance = orchestrator.sessionState.guidanceState
         let state = orchestrator.sessionState
+        if let until = unlockFocusUntil, lastUpdateTime >= until {
+            unlockFocusZoneID = nil
+            unlockFocusUntil = nil
+        }
 
         var candidates: [InteractionCandidate] = resourceNodes.compactMap { id, node in
             guard !node.isHidden else { return nil }
@@ -1081,10 +1185,24 @@ final class GamePlayScene: SKScene {
         }
 
         let decision = PrimaryTargetResolver.resolve(candidates: candidates, guidance: guidance)
-        currentPrimaryTargetID = decision.primaryZoneID
+        var primaryID = decision.primaryZoneID
+        if primaryID == nil,
+           let focusZone = unlockFocusZoneID,
+           guidance.target == .collectResource {
+            let focused = resourceNodes
+                .filter { id, node in
+                    guard !node.isHidden else { return false }
+                    return resourceZoneByID[id] == focusZone
+                }
+                .min { lhs, rhs in
+                    player.position.distanceSquared(to: lhs.value.position) < player.position.distanceSquared(to: rhs.value.position)
+                }
+            primaryID = focused?.key
+        }
+        currentPrimaryTargetID = primaryID
 
         for (id, highlight) in highlightNodes {
-            let active = decision.primaryZoneID == id
+            let active = primaryID == id
             if active {
                 if highlight.isHidden {
                     highlight.isHidden = false
@@ -1108,7 +1226,11 @@ final class GamePlayScene: SKScene {
 
         carryLabel.text = "Carry: \(state.carryAmount)/\(capacity)"
         coinsLabel.text = "Coins: \(state.coins)"
-        guidanceLabel.text = GuidanceTextPresenter.text(for: state.guidanceState)
+        if let focusZone = unlockFocusZoneID, state.guidanceState.target == .collectResource {
+            guidanceLabel.text = "Collect resources in Zone \(focusZone)"
+        } else {
+            guidanceLabel.text = GuidanceTextPresenter.text(for: state.guidanceState)
+        }
 
         if state.processingQueue.processedReadyUnits > 0 {
             processorStatusLabel.text = "Processor: ready (\(state.processingQueue.processedReadyUnits))"
@@ -1275,8 +1397,8 @@ final class GamePlayScene: SKScene {
         case "dbg_radius_plus":
             tunedPickupRadius = min(200, tunedPickupRadius + 4)
             updateResourceInteractionZoneRadii()
-        case "dbg_camera_minus": tunedCameraFollowSmoothing = max(1, tunedCameraFollowSmoothing - 0.5)
-        case "dbg_camera_plus": tunedCameraFollowSmoothing = min(20, tunedCameraFollowSmoothing + 0.5)
+        case "dbg_camera_minus": tunedCameraFollowSmoothing = max(0.02, tunedCameraFollowSmoothing - 0.05)
+        case "dbg_camera_plus": tunedCameraFollowSmoothing = min(0.90, tunedCameraFollowSmoothing + 0.05)
         case "dbg_session_reset":
             resetSessionMetrics()
             showFloatingText(text: "Session metrics reset", color: UIColor(red: 0.8, green: 0.95, blue: 1.0, alpha: 1), at: player.position)
@@ -1313,7 +1435,7 @@ final class GamePlayScene: SKScene {
         }
 
         debugParamsLabel.text = String(
-            format: "A %.0f | V %.0f | R %.0f | C %.1f",
+            format: "A %.0f | V %.0f | R %.0f | C %.2f",
             tunedPlayerAcceleration,
             tunedPlayerMaxSpeed,
             tunedPickupRadius,
