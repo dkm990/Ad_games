@@ -28,6 +28,8 @@ final class GamePlayScene: SKScene {
     private var interactionZoneNodes: [Int: SKShapeNode] = [:]
     private var highlightNodes: [Int: SKShapeNode] = [:]
     private var resourceZoneByID: [Int: Int] = [:]
+    private var resourceIsGolden: [Int: Bool] = [:]
+    private var goldenNodesCollectedCount = 0
 
     private let processorBaseNode = SKShapeNode(rectOf: CGSize(width: 190, height: 140), cornerRadius: 10)
     private let processorInputZoneNode = SKShapeNode(circleOfRadius: 56)
@@ -131,6 +133,7 @@ final class GamePlayScene: SKScene {
     private let debugLoopLabel = SKLabelNode(fontNamed: "Menlo-Regular")
     private let debugActionsLabel = SKLabelNode(fontNamed: "Menlo-Regular")
     private let debugEconomyLabel = SKLabelNode(fontNamed: "Menlo-Regular")
+    private let debugGoldenLabel = SKLabelNode(fontNamed: "Menlo-Regular")
     private let pickupRadiusDebugCircle = SKShapeNode(circleOfRadius: 12)
     #endif
 
@@ -370,6 +373,34 @@ final class GamePlayScene: SKScene {
             interactionZoneNodes[id] = interactionZone
             highlightNodes[id] = highlight
             resourceZoneByID[id] = zoneID
+            setGoldenState(for: id, node: node, isGolden: rollGoldenSpawn())
+        }
+    }
+
+    private func rollGoldenSpawn() -> Bool {
+        Int.random(in: 1...12) == 1
+    }
+
+    private func setGoldenState(for resourceID: Int, node: SKShapeNode, isGolden: Bool) {
+        resourceIsGolden[resourceID] = isGolden
+
+        if isGolden {
+            node.fillColor = UIColor(red: 1.0, green: 0.88, blue: 0.32, alpha: 1)
+            node.strokeColor = UIColor(red: 0.78, green: 0.52, blue: 0.05, alpha: 1)
+            node.glowWidth = 4
+            if node.action(forKey: "goldenPulse") == nil {
+                let pulse = SKAction.sequence([
+                    SKAction.scale(to: 1.08, duration: 0.35),
+                    SKAction.scale(to: 1.0, duration: 0.35)
+                ])
+                node.run(SKAction.repeatForever(pulse), withKey: "goldenPulse")
+            }
+        } else {
+            node.fillColor = UIColor(red: 1.0, green: 0.75, blue: 0.22, alpha: 1)
+            node.strokeColor = UIColor(red: 0.62, green: 0.33, blue: 0.02, alpha: 1)
+            node.glowWidth = 0
+            node.removeAction(forKey: "goldenPulse")
+            node.setScale(1.0)
         }
     }
 
@@ -949,7 +980,8 @@ final class GamePlayScene: SKScene {
         guard player.position.distance(to: node.position) <= tunedPickupRadius else { return }
 
         let zoneID = resourceZoneByID[id] ?? 1
-        let pickupUnits = pickupMultiplier(for: zoneID)
+        let isGolden = resourceIsGolden[id] ?? false
+        let pickupUnits = isGolden ? 5 : pickupMultiplier(for: zoneID)
         let nearProcessorInput = player.position.distance(to: processorInputZoneNode.position) <= 72
         var acceptedToCarry = 0
         var autoQueuedFromPickup = 0
@@ -991,12 +1023,20 @@ final class GamePlayScene: SKScene {
         }
 
         interactionZoneNodes[id]?.isHidden = true
+        resourceIsGolden[id] = false
         resourceRespawnTime[id] = currentTime + 2.0
 
         playPickupFeedback(for: node)
         let totalPickupApplied = acceptedToCarry + autoQueuedFromPickup
         showFloatingText(text: "+\(totalPickupApplied)", color: UIColor(red: 1, green: 0.86, blue: 0.2, alpha: 1), at: node.position)
-        if pickupUnits > 1 {
+        if isGolden {
+            goldenNodesCollectedCount += 1
+            showFloatingText(
+                text: "GOLDEN +5",
+                color: UIColor(red: 1.0, green: 0.92, blue: 0.52, alpha: 1),
+                at: CGPoint(x: node.position.x, y: node.position.y + 14)
+            )
+        } else if pickupUnits > 1 {
             showFloatingText(
                 text: "x\(pickupUnits) pickup",
                 color: UIColor(red: 0.88, green: 1.0, blue: 0.78, alpha: 1),
@@ -1444,6 +1484,9 @@ final class GamePlayScene: SKScene {
         for (id, respawnTime) in resourceRespawnTime where currentTime >= respawnTime {
             let zoneID = resourceZoneByID[id] ?? 1
             let unlocked = orchestrator.sessionState.unlockedZoneIDs.contains(zoneID)
+            if let node = resourceNodes[id] {
+                setGoldenState(for: id, node: node, isGolden: rollGoldenSpawn())
+            }
             resourceNodes[id]?.isHidden = !unlocked
             interactionZoneNodes[id]?.isHidden = !unlocked
             resourceRespawnTime.removeValue(forKey: id)
@@ -1716,6 +1759,12 @@ final class GamePlayScene: SKScene {
         debugEconomyLabel.fontColor = UIColor(red: 0.86, green: 1.0, blue: 0.95, alpha: 1)
         debugEconomyLabel.position = CGPoint(x: -size.width * 0.45, y: size.height * -0.10)
 
+        debugGoldenLabel.fontSize = 10
+        debugGoldenLabel.horizontalAlignmentMode = .left
+        debugGoldenLabel.verticalAlignmentMode = .center
+        debugGoldenLabel.fontColor = UIColor(red: 1.0, green: 0.92, blue: 0.62, alpha: 1)
+        debugGoldenLabel.position = CGPoint(x: -size.width * 0.45, y: size.height * -0.14)
+
         debugPanelNode.addChild(debugSpeedLabel)
         debugPanelNode.addChild(debugTargetLabel)
         debugPanelNode.addChild(debugParamsLabel)
@@ -1725,17 +1774,18 @@ final class GamePlayScene: SKScene {
         debugPanelNode.addChild(debugLoopLabel)
         debugPanelNode.addChild(debugActionsLabel)
         debugPanelNode.addChild(debugEconomyLabel)
+        debugPanelNode.addChild(debugGoldenLabel)
 
         let controls: [(String, String, CGFloat, CGFloat)] = [
-            ("A-", "dbg_accel_minus", -size.width * 0.45, size.height * -0.16),
-            ("A+", "dbg_accel_plus", -size.width * 0.38, size.height * -0.16),
-            ("V-", "dbg_speed_minus", -size.width * 0.30, size.height * -0.16),
-            ("V+", "dbg_speed_plus", -size.width * 0.23, size.height * -0.16),
-            ("R-", "dbg_radius_minus", -size.width * 0.15, size.height * -0.16),
-            ("R+", "dbg_radius_plus", -size.width * 0.08, size.height * -0.16),
-            ("C-", "dbg_camera_minus", 0.00, size.height * -0.16),
-            ("C+", "dbg_camera_plus", 0.07, size.height * -0.16),
-            ("RST", "dbg_session_reset", 0.17, size.height * -0.16)
+            ("A-", "dbg_accel_minus", -size.width * 0.45, size.height * -0.20),
+            ("A+", "dbg_accel_plus", -size.width * 0.38, size.height * -0.20),
+            ("V-", "dbg_speed_minus", -size.width * 0.30, size.height * -0.20),
+            ("V+", "dbg_speed_plus", -size.width * 0.23, size.height * -0.20),
+            ("R-", "dbg_radius_minus", -size.width * 0.15, size.height * -0.20),
+            ("R+", "dbg_radius_plus", -size.width * 0.08, size.height * -0.20),
+            ("C-", "dbg_camera_minus", 0.00, size.height * -0.20),
+            ("C+", "dbg_camera_plus", 0.07, size.height * -0.20),
+            ("RST", "dbg_session_reset", 0.17, size.height * -0.20)
         ]
 
         for (title, name, x, y) in controls {
@@ -1846,6 +1896,7 @@ final class GamePlayScene: SKScene {
         debugLoopLabel.text = String(format: "Loops: %d | Avg loop: %.1fs", sessionMetrics.loopsCompleted, averageLoop)
         debugActionsLabel.text = "Act C:\(sessionMetrics.resourcesCollected) O:\(sessionMetrics.processedOutputsCollected) S:\(sessionMetrics.processedUnitsSold) U:\(sessionMetrics.upgradesPurchased) Z:\(sessionMetrics.zonesUnlocked)"
         debugEconomyLabel.text = "Session Economy +\(sessionMetrics.coinsEarned) / -\(sessionMetrics.coinsSpent)"
+        debugGoldenLabel.text = "Golden nodes collected: \(goldenNodesCollectedCount)"
 
         pickupRadiusDebugCircle.position = player.position
         pickupRadiusDebugCircle.path = CGPath(
