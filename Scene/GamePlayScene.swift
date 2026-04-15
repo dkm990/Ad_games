@@ -35,12 +35,15 @@ final class GamePlayScene: SKScene {
     private let processorProgressBackground = SKShapeNode(rectOf: CGSize(width: 140, height: 10), cornerRadius: 5)
     private let processorProgressFill = SKShapeNode(rectOf: CGSize(width: 138, height: 8), cornerRadius: 4)
     private let processorLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+    private let processorInfoLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
     private let processorBBaseNode = SKShapeNode(rectOf: CGSize(width: 190, height: 140), cornerRadius: 10)
     private let processorBInputZoneNode = SKShapeNode(circleOfRadius: 56)
     private let processorBOutputZoneNode = SKShapeNode(circleOfRadius: 50)
     private let processorBProgressBackground = SKShapeNode(rectOf: CGSize(width: 140, height: 10), cornerRadius: 5)
     private let processorBProgressFill = SKShapeNode(rectOf: CGSize(width: 138, height: 8), cornerRadius: 4)
     private let processorBLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+    private let processorBInfoLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+    private let processorBBarrierNode = SKShapeNode(rectOf: CGSize(width: 30, height: 180), cornerRadius: 6)
 
     private let sellZoneNode = SKShapeNode(circleOfRadius: 58)
     private let sellZoneLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
@@ -78,6 +81,9 @@ final class GamePlayScene: SKScene {
     private var processorBBatchTotalTime: TimeInterval = 0
     private let processorBProcessTimeMultiplier: Double = 1.6
     private let processorBSellPriceMultiplier: Double = 1.8
+    private var processorBUnlockPrice: Int
+    private var isProcessorBUnlocked = false
+    private var didAnnounceProcessorBUnlock = false
 
     private var processedInventoryA: Int = 0
     private var processedInventoryB: Int = 0
@@ -134,6 +140,8 @@ final class GamePlayScene: SKScene {
         self.tunedPlayerAcceleration = CGFloat(config.player.playerAcceleration)
         self.tunedPlayerMaxSpeed = CGFloat(config.player.playerMaxSpeed)
         self.tunedPickupRadius = CGFloat(config.player.pickupRadius)
+        let zone2Price = config.zones.first(where: { $0.id == 2 })?.unlockPrice ?? 60
+        self.processorBUnlockPrice = max(100, zone2Price + 40)
         super.init(size: size)
     }
 
@@ -157,6 +165,7 @@ final class GamePlayScene: SKScene {
         setupUpgradesPanel()
         applyUnlockVisualStateFromSession()
         bootstrapProcessorRuntimeFromSession()
+        updateProcessorBUnlockState(force: true)
 
         #if DEBUG
         setupDebugOverlay()
@@ -213,6 +222,7 @@ final class GamePlayScene: SKScene {
         updateResourceRespawns(currentTime: currentTime)
         runPickupIfNeeded(currentTime: currentTime)
         runZoneBonusEntryFeedback()
+        updateProcessorBUnlockState()
         runProcessorInteractions(currentTime: currentTime)
         runSellInteractions(currentTime: currentTime)
         runUnlockInteractions(currentTime: currentTime)
@@ -375,10 +385,17 @@ final class GamePlayScene: SKScene {
 
         processorLabel.fontSize = 13
         processorLabel.fontColor = .white
-        processorLabel.text = "Processor: idle"
+        processorLabel.text = "Processor A: idle"
         processorLabel.position = CGPoint(x: 0, y: 38)
         processorLabel.zPosition = 5
         processorBaseNode.addChild(processorLabel)
+
+        processorInfoLabel.fontSize = 11
+        processorInfoLabel.fontColor = UIColor(red: 0.86, green: 0.94, blue: 1.0, alpha: 1)
+        processorInfoLabel.text = "FAST • VALUE x1.0"
+        processorInfoLabel.position = CGPoint(x: 0, y: 54)
+        processorInfoLabel.zPosition = 5
+        processorBaseNode.addChild(processorInfoLabel)
 
         processorProgressBackground.fillColor = UIColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1)
         processorProgressBackground.strokeColor = UIColor(red: 0.38, green: 0.42, blue: 0.48, alpha: 1)
@@ -457,10 +474,17 @@ final class GamePlayScene: SKScene {
 
         processorBLabel.fontSize = 13
         processorBLabel.fontColor = .white
-        processorBLabel.text = "Processor B: idle"
+        processorBLabel.text = "Processor B: locked"
         processorBLabel.position = CGPoint(x: 0, y: 38)
         processorBLabel.zPosition = 5
         processorBBaseNode.addChild(processorBLabel)
+
+        processorBInfoLabel.fontSize = 11
+        processorBInfoLabel.fontColor = UIColor(red: 0.92, green: 0.84, blue: 1.0, alpha: 1)
+        processorBInfoLabel.text = String(format: "SLOW • VALUE x%.1f", processorBSellPriceMultiplier)
+        processorBInfoLabel.position = CGPoint(x: 0, y: 54)
+        processorBInfoLabel.zPosition = 5
+        processorBBaseNode.addChild(processorBInfoLabel)
 
         processorBProgressBackground.fillColor = UIColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1)
         processorBProgressBackground.strokeColor = UIColor(red: 0.43, green: 0.4, blue: 0.53, alpha: 1)
@@ -525,6 +549,18 @@ final class GamePlayScene: SKScene {
 
         highlightNodes[processorBZoneInputID] = inputHighlight
         highlightNodes[processorBZoneOutputID] = outputHighlight
+
+        processorBBarrierNode.position = CGPoint(x: center.x - 170, y: center.y)
+        processorBBarrierNode.fillColor = UIColor(red: 0.33, green: 0.18, blue: 0.38, alpha: 1)
+        processorBBarrierNode.strokeColor = UIColor(red: 0.8, green: 0.56, blue: 0.9, alpha: 1)
+        processorBBarrierNode.lineWidth = 2
+        processorBBarrierNode.zPosition = 4
+        processorBBarrierNode.physicsBody = SKPhysicsBody(rectangleOf: CGSize(width: 30, height: 180))
+        processorBBarrierNode.physicsBody?.isDynamic = false
+        processorBBarrierNode.physicsBody?.affectedByGravity = false
+        processorBBarrierNode.physicsBody?.categoryBitMask = CollisionLayer.blockingGeometry.rawValue
+        processorBBarrierNode.physicsBody?.collisionBitMask = CollisionPolicy.playerCollisionMask.rawValue
+        worldNode.addChild(processorBBarrierNode)
     }
 
     private func bootstrapProcessorRuntimeFromSession() {
@@ -535,6 +571,27 @@ final class GamePlayScene: SKScene {
         processorBReadyUnits = 0
         processedInventoryA = state.processedInventory
         processedInventoryB = 0
+    }
+
+    private func updateProcessorBUnlockState(force: Bool = false) {
+        let state = orchestrator.sessionState
+        let shouldUnlock = state.unlockedZoneIDs.contains(2) || state.coins >= processorBUnlockPrice
+
+        if shouldUnlock && !isProcessorBUnlocked {
+            isProcessorBUnlocked = true
+            processorBBarrierNode.isHidden = true
+            processorBBarrierNode.physicsBody = nil
+            if force {
+                didAnnounceProcessorBUnlock = true
+            } else if !didAnnounceProcessorBUnlock {
+                didAnnounceProcessorBUnlock = true
+                flashZone(processorBBaseNode, color: UIColor(red: 0.55, green: 0.4, blue: 0.75, alpha: 0.82))
+                showFloatingText(text: "NEW PROCESSOR UNLOCKED", color: UIColor(red: 0.9, green: 0.84, blue: 1.0, alpha: 1), at: CGPoint(x: processorBBaseNode.position.x, y: processorBBaseNode.position.y + 30))
+            }
+        } else if !shouldUnlock && force {
+            isProcessorBUnlocked = false
+            processorBBarrierNode.isHidden = false
+        }
     }
     private func buildSellZone() {
         let position = CGPoint(x: 240, y: -220)
@@ -1007,7 +1064,7 @@ final class GamePlayScene: SKScene {
             let distA = player.position.distance(to: processorInputZoneNode.position)
             let distB = player.position.distance(to: processorBInputZoneNode.position)
             let canDepositA = distA <= 56
-            let canDepositB = distB <= 56
+            let canDepositB = isProcessorBUnlocked && distB <= 56
 
             if canDepositA || canDepositB {
                 let depositToB = canDepositB && (!canDepositA || distB < distA)
@@ -1028,7 +1085,7 @@ final class GamePlayScene: SKScene {
 
         if currentTime - lastOutputCollectTime > 0.2 {
             let canCollectA = processorAReadyUnits > 0 && player.position.distance(to: processorOutputZoneNode.position) <= 50
-            let canCollectB = processorBReadyUnits > 0 && player.position.distance(to: processorBOutputZoneNode.position) <= 50
+            let canCollectB = isProcessorBUnlocked && processorBReadyUnits > 0 && player.position.distance(to: processorBOutputZoneNode.position) <= 50
             guard canCollectA || canCollectB else { return }
 
             lastOutputCollectTime = currentTime
@@ -1155,17 +1212,19 @@ final class GamePlayScene: SKScene {
             }
         }
 
-        if processorBTimeRemaining <= 0,
+        if isProcessorBUnlocked,
+           processorBTimeRemaining <= 0,
            processorBQueuedRawUnits >= config.processing.inputPerBatch {
             processorBBatchTotalTime = max(0.3, orchestrator.effectiveProcessTimeSec * processorBProcessTimeMultiplier)
             processorBTimeRemaining = processorBBatchTotalTime
         }
 
-        if processorBTimeRemaining > 0 {
+        if isProcessorBUnlocked, processorBTimeRemaining > 0 {
             processorBTimeRemaining = max(0, processorBTimeRemaining - dt)
         }
 
-        if processorBTimeRemaining <= 0,
+        if isProcessorBUnlocked,
+           processorBTimeRemaining <= 0,
            processorBQueuedRawUnits >= config.processing.inputPerBatch {
             let before = orchestrator.sessionState.processingQueue
             orchestrator.perform(.processingCompleted)
@@ -1270,10 +1329,16 @@ final class GamePlayScene: SKScene {
             transform: nil
         )
 
-        let readyB = processorBReadyUnits > 0
-        let processingB = processorBTimeRemaining > 0
+        let readyB = isProcessorBUnlocked && processorBReadyUnits > 0
+        let processingB = isProcessorBUnlocked && processorBTimeRemaining > 0
 
-        if readyB {
+        if !isProcessorBUnlocked {
+            processorBBaseNode.fillColor = UIColor(red: 0.19, green: 0.17, blue: 0.24, alpha: 1)
+            processorBBaseNode.strokeColor = UIColor(red: 0.56, green: 0.5, blue: 0.66, alpha: 1)
+            processorBLabel.text = "Processor B: locked"
+            processorBOutputZoneNode.removeAction(forKey: "readyPulse")
+            processorBOutputZoneNode.alpha = 0.75
+        } else if readyB {
             processorBBaseNode.fillColor = UIColor(red: 0.31, green: 0.24, blue: 0.39, alpha: 1)
             processorBBaseNode.strokeColor = UIColor(red: 0.9, green: 0.8, blue: 1.0, alpha: 1)
             processorBLabel.text = "Processor B: ready"
@@ -1422,22 +1487,24 @@ final class GamePlayScene: SKScene {
             isWithinInteractionRadius: outputAvailable && outputDistance <= 50
         ))
 
-        let inputDistanceB = player.position.distance(to: processorBInputZoneNode.position)
-        candidates.append(InteractionCandidate(
-            zoneID: processorBZoneInputID,
-            kind: .processorInput,
-            distanceToPlayer: inputDistanceB,
-            isWithinInteractionRadius: inputDistanceB <= 56
-        ))
+        if isProcessorBUnlocked {
+            let inputDistanceB = player.position.distance(to: processorBInputZoneNode.position)
+            candidates.append(InteractionCandidate(
+                zoneID: processorBZoneInputID,
+                kind: .processorInput,
+                distanceToPlayer: inputDistanceB,
+                isWithinInteractionRadius: inputDistanceB <= 56
+            ))
 
-        let outputDistanceB = player.position.distance(to: processorBOutputZoneNode.position)
-        let outputAvailableB = processorBReadyUnits > 0
-        candidates.append(InteractionCandidate(
-            zoneID: processorBZoneOutputID,
-            kind: .processorOutput,
-            distanceToPlayer: outputDistanceB,
-            isWithinInteractionRadius: outputAvailableB && outputDistanceB <= 50
-        ))
+            let outputDistanceB = player.position.distance(to: processorBOutputZoneNode.position)
+            let outputAvailableB = processorBReadyUnits > 0
+            candidates.append(InteractionCandidate(
+                zoneID: processorBZoneOutputID,
+                kind: .processorOutput,
+                distanceToPlayer: outputDistanceB,
+                isWithinInteractionRadius: outputAvailableB && outputDistanceB <= 50
+            ))
+        }
 
         let sellDistance = player.position.distance(to: sellZoneNode.position)
         let hasProcessed = state.processedInventory > 0
@@ -1465,7 +1532,7 @@ final class GamePlayScene: SKScene {
         if primaryID == nil, guidance.target == .collectProcessedOutput {
             let readyOutputs: [(Int, CGFloat)] = [
                 (processorZoneOutputID, processorAReadyUnits > 0 ? player.position.distance(to: processorOutputZoneNode.position) : .greatestFiniteMagnitude),
-                (processorBZoneOutputID, processorBReadyUnits > 0 ? player.position.distance(to: processorBOutputZoneNode.position) : .greatestFiniteMagnitude)
+                (processorBZoneOutputID, (isProcessorBUnlocked && processorBReadyUnits > 0) ? player.position.distance(to: processorBOutputZoneNode.position) : .greatestFiniteMagnitude)
             ]
             primaryID = readyOutputs.min(by: { $0.1 < $1.1 })?.0
             if let id = primaryID, readyOutputs.first(where: { $0.0 == id })?.1 == .greatestFiniteMagnitude {
@@ -1474,8 +1541,12 @@ final class GamePlayScene: SKScene {
         }
         if primaryID == nil, guidance.target == .goProcessorInput, state.carryAmount > 0 {
             let distA = player.position.distance(to: processorInputZoneNode.position)
-            let distB = player.position.distance(to: processorBInputZoneNode.position)
-            primaryID = distB < distA ? processorBZoneInputID : processorZoneInputID
+            if isProcessorBUnlocked {
+                let distB = player.position.distance(to: processorBInputZoneNode.position)
+                primaryID = distB < distA ? processorBZoneInputID : processorZoneInputID
+            } else {
+                primaryID = processorZoneInputID
+            }
         }
         if primaryID == nil,
            let focusZone = unlockFocusZoneID,
@@ -1532,7 +1603,9 @@ final class GamePlayScene: SKScene {
             processorAStatusLabel.text = "Processor A: idle"
         }
 
-        if processorBReadyUnits > 0 {
+        if !isProcessorBUnlocked {
+            processorBStatusLabel.text = "Processor B: locked (\(processorBUnlockPrice)c or Zone 2)"
+        } else if processorBReadyUnits > 0 {
             processorBStatusLabel.text = "Processor B: ready (\(processorBReadyUnits))"
         } else if processorBTimeRemaining > 0 {
             processorBStatusLabel.text = String(format: "Processor B: processing (%.1fs)", processorBTimeRemaining)
