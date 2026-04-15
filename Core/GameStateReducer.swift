@@ -109,22 +109,12 @@ public final class GameStateReducer {
     }
 
     private func recalculateGuidanceState() {
-        if let nextZone = nextLockedZone(), state.coins >= nextZone.unlockPrice {
-            state.guidanceState = GuidanceState(target: .unlockGate, zoneID: nextZone.id)
-            return
-        }
-
-        if state.processedInventory > 0 {
-            state.guidanceState = GuidanceState(target: .goSellZone)
-            return
-        }
-
         if state.processingQueue.processedReadyUnits > 0 {
             state.guidanceState = GuidanceState(target: .collectProcessedOutput)
             return
         }
 
-        if state.carryAmount > 0, state.processingQueue.processorWaitingForInput {
+        if state.carryAmount > 0 {
             state.guidanceState = GuidanceState(target: .goProcessorInput)
             return
         }

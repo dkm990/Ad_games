@@ -1,35 +1,29 @@
 ﻿import Foundation
 
 public struct DebugTuningState: Equatable {
-    public var moveSpeed: Double
-    public var carryCapacity: Int
-    public var processingTimeSec: Double
-    public var sellPrice: Int
-    public var zoneUnlockPrices: [Int: Int]
+    public var playerAcceleration: Double
+    public var playerMaxSpeed: Double
+    public var pickupRadius: Double
+    public var cameraFollowSmoothing: Double
 
     public init(
-        moveSpeed: Double,
-        carryCapacity: Int,
-        processingTimeSec: Double,
-        sellPrice: Int,
-        zoneUnlockPrices: [Int: Int]
+        playerAcceleration: Double,
+        playerMaxSpeed: Double,
+        pickupRadius: Double,
+        cameraFollowSmoothing: Double
     ) {
-        self.moveSpeed = moveSpeed
-        self.carryCapacity = carryCapacity
-        self.processingTimeSec = processingTimeSec
-        self.sellPrice = sellPrice
-        self.zoneUnlockPrices = zoneUnlockPrices
+        self.playerAcceleration = playerAcceleration
+        self.playerMaxSpeed = playerMaxSpeed
+        self.pickupRadius = pickupRadius
+        self.cameraFollowSmoothing = cameraFollowSmoothing
     }
 }
 
 public enum DebugPanelAction {
-    case setMoveSpeed(Double)
-    case setCarryCapacity(Int)
-    case setProcessingTimeSec(Double)
-    case setSellPrice(Int)
-    case setUnlockPrice(zoneID: Int, price: Int)
-    case resetProgress
-    case skipUnlockNextZone
+    case setPlayerAcceleration(Double)
+    case setPlayerMaxSpeed(Double)
+    case setPickupRadius(Double)
+    case setCameraFollowSmoothing(Double)
 }
 
 public protocol DebugPanelDelegate: AnyObject {

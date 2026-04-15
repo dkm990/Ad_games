@@ -12,20 +12,54 @@ final class GamePlayScene: SKScene {
 
     private let carryLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
     private let guidanceLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
+    private let processorStatusLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
 
     private var resourceNodes: [Int: SKShapeNode] = [:]
     private var resourceRespawnTime: [Int: TimeInterval] = [:]
     private var interactionZoneNodes: [Int: SKShapeNode] = [:]
     private var highlightNodes: [Int: SKShapeNode] = [:]
 
+    private let processorBaseNode = SKShapeNode(rectOf: CGSize(width: 190, height: 140), cornerRadius: 10)
+    private let processorInputZoneNode = SKShapeNode(circleOfRadius: 56)
+    private let processorOutputZoneNode = SKShapeNode(circleOfRadius: 50)
+    private let processorProgressBackground = SKShapeNode(rectOf: CGSize(width: 140, height: 10), cornerRadius: 5)
+    private let processorProgressFill = SKShapeNode(rectOf: CGSize(width: 138, height: 8), cornerRadius: 4)
+    private let processorLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+
     private var touchLocation: CGPoint?
     private var velocity: CGVector = .zero
     private var lastUpdateTime: TimeInterval = 0
     private var lastPickupCheckTime: TimeInterval = 0
+    private var lastDepositTime: TimeInterval = 0
+    private var lastOutputCollectTime: TimeInterval = 0
+    private var currentPrimaryTargetID: Int?
+
+    private var tunedPlayerAcceleration: CGFloat
+    private var tunedPlayerMaxSpeed: CGFloat
+    private var tunedPickupRadius: CGFloat
+    private var tunedCameraFollowSmoothing: CGFloat = 8.0
+
+    private var processingTimeRemaining: TimeInterval = 0
+    private var currentBatchTotalTime: TimeInterval = 0
+
+    private let processorZoneInputID = 9001
+    private let processorZoneOutputID = 9002
+
+    #if DEBUG
+    private let debugPanelNode = SKNode()
+    private let debugSpeedLabel = SKLabelNode(fontNamed: "Menlo-Bold")
+    private let debugTargetLabel = SKLabelNode(fontNamed: "Menlo-Bold")
+    private let debugParamsLabel = SKLabelNode(fontNamed: "Menlo-Regular")
+    private let debugProcessorLabel = SKLabelNode(fontNamed: "Menlo-Regular")
+    private let pickupRadiusDebugCircle = SKShapeNode(circleOfRadius: 12)
+    #endif
 
     init(size: CGSize, orchestrator: GameSceneOrchestrator, config: EconomyConfig) {
         self.orchestrator = orchestrator
         self.config = config
+        self.tunedPlayerAcceleration = CGFloat(config.player.playerAcceleration)
+        self.tunedPlayerMaxSpeed = CGFloat(config.player.playerMaxSpeed)
+        self.tunedPickupRadius = CGFloat(config.player.pickupRadius)
         super.init(size: size)
     }
 
@@ -41,16 +75,27 @@ final class GamePlayScene: SKScene {
         buildMap()
         buildPlayer()
         buildResources()
+        buildProcessor()
         setupCameraAndHUD()
+        #if DEBUG
+        setupDebugOverlay()
+        #endif
         refreshHUD()
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        touchLocation = touches.first.map { $0.location(in: worldNode) }
+        guard let touch = touches.first else { return }
+        #if DEBUG
+        if handleDebugTap(touch) {
+            return
+        }
+        #endif
+        touchLocation = touch.location(in: worldNode)
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        touchLocation = touches.first.map { $0.location(in: worldNode) }
+        guard let touch = touches.first else { return }
+        touchLocation = touch.location(in: worldNode)
     }
 
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -69,8 +114,14 @@ final class GamePlayScene: SKScene {
         updateCamera(dt: dt)
         updateResourceRespawns(currentTime: currentTime)
         runPickupIfNeeded(currentTime: currentTime)
+        runProcessorInteractions(currentTime: currentTime)
+        updateProcessingLifecycle(dt: dt)
+        updateProcessorVisualState()
         updateHighlighting()
         refreshHUD()
+        #if DEBUG
+        updateDebugOverlay()
+        #endif
     }
 
     private func buildMap() {
@@ -177,14 +228,14 @@ final class GamePlayScene: SKScene {
             highlight.zPosition = 7
             node.addChild(highlight)
 
-            let interactionZone = SKShapeNode(circleOfRadius: config.player.pickupRadius)
+            let interactionZone = SKShapeNode(circleOfRadius: tunedPickupRadius)
             interactionZone.position = point
             interactionZone.strokeColor = .clear
             interactionZone.fillColor = .clear
             interactionZone.zPosition = 2
             interactionZone.name = "interaction_resource_\(id)"
 
-            let interactionBody = SKPhysicsBody(circleOfRadius: config.player.pickupRadius)
+            let interactionBody = SKPhysicsBody(circleOfRadius: tunedPickupRadius)
             interactionBody.isDynamic = false
             interactionBody.affectedByGravity = false
             interactionBody.categoryBitMask = CollisionLayer.interactionZone.rawValue
@@ -199,6 +250,88 @@ final class GamePlayScene: SKScene {
             interactionZoneNodes[id] = interactionZone
             highlightNodes[id] = highlight
         }
+    }
+
+    private func buildProcessor() {
+        let processorCenter = CGPoint(x: -40, y: -80)
+
+        processorBaseNode.position = processorCenter
+        processorBaseNode.fillColor = UIColor(red: 0.22, green: 0.24, blue: 0.28, alpha: 1)
+        processorBaseNode.strokeColor = UIColor(red: 0.67, green: 0.72, blue: 0.8, alpha: 1)
+        processorBaseNode.lineWidth = 3
+        processorBaseNode.zPosition = 3
+        worldNode.addChild(processorBaseNode)
+
+        processorLabel.fontSize = 13
+        processorLabel.fontColor = .white
+        processorLabel.text = "Processor: idle"
+        processorLabel.position = CGPoint(x: 0, y: 38)
+        processorLabel.zPosition = 5
+        processorBaseNode.addChild(processorLabel)
+
+        processorProgressBackground.fillColor = UIColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1)
+        processorProgressBackground.strokeColor = UIColor(red: 0.38, green: 0.42, blue: 0.48, alpha: 1)
+        processorProgressBackground.lineWidth = 1
+        processorProgressBackground.position = CGPoint(x: 0, y: 16)
+        processorProgressBackground.zPosition = 4
+        processorBaseNode.addChild(processorProgressBackground)
+
+        processorProgressFill.fillColor = UIColor(red: 0.24, green: 0.95, blue: 0.66, alpha: 1)
+        processorProgressFill.strokeColor = .clear
+        processorProgressFill.position = CGPoint(x: 0, y: 16)
+        processorProgressFill.zPosition = 5
+        processorBaseNode.addChild(processorProgressFill)
+
+        processorInputZoneNode.position = CGPoint(x: processorCenter.x - 112, y: processorCenter.y - 12)
+        processorInputZoneNode.fillColor = UIColor(red: 0.20, green: 0.44, blue: 0.92, alpha: 0.26)
+        processorInputZoneNode.strokeColor = UIColor(red: 0.57, green: 0.76, blue: 1.0, alpha: 1)
+        processorInputZoneNode.lineWidth = 2
+        processorInputZoneNode.zPosition = 2
+        worldNode.addChild(processorInputZoneNode)
+
+        let inputBody = SKPhysicsBody(circleOfRadius: 56)
+        inputBody.isDynamic = false
+        inputBody.affectedByGravity = false
+        inputBody.categoryBitMask = CollisionLayer.interactionZone.rawValue
+        inputBody.collisionBitMask = CollisionPolicy.interactionZoneCollisionMask.rawValue
+        inputBody.contactTestBitMask = CollisionLayer.player.rawValue
+        processorInputZoneNode.physicsBody = inputBody
+
+        let inputHighlight = SKShapeNode(circleOfRadius: 63)
+        inputHighlight.strokeColor = UIColor(red: 0.0, green: 0.95, blue: 1.0, alpha: 1)
+        inputHighlight.lineWidth = 2
+        inputHighlight.glowWidth = 2
+        inputHighlight.fillColor = .clear
+        inputHighlight.isHidden = true
+        inputHighlight.zPosition = 6
+        processorInputZoneNode.addChild(inputHighlight)
+
+        processorOutputZoneNode.position = CGPoint(x: processorCenter.x + 112, y: processorCenter.y - 12)
+        processorOutputZoneNode.fillColor = UIColor(red: 0.95, green: 0.67, blue: 0.14, alpha: 0.22)
+        processorOutputZoneNode.strokeColor = UIColor(red: 1.0, green: 0.86, blue: 0.56, alpha: 1)
+        processorOutputZoneNode.lineWidth = 2
+        processorOutputZoneNode.zPosition = 2
+        worldNode.addChild(processorOutputZoneNode)
+
+        let outputBody = SKPhysicsBody(circleOfRadius: 50)
+        outputBody.isDynamic = false
+        outputBody.affectedByGravity = false
+        outputBody.categoryBitMask = CollisionLayer.interactionZone.rawValue
+        outputBody.collisionBitMask = CollisionPolicy.interactionZoneCollisionMask.rawValue
+        outputBody.contactTestBitMask = CollisionLayer.player.rawValue
+        processorOutputZoneNode.physicsBody = outputBody
+
+        let outputHighlight = SKShapeNode(circleOfRadius: 57)
+        outputHighlight.strokeColor = UIColor(red: 0.0, green: 0.95, blue: 1.0, alpha: 1)
+        outputHighlight.lineWidth = 2
+        outputHighlight.glowWidth = 2
+        outputHighlight.fillColor = .clear
+        outputHighlight.isHidden = true
+        outputHighlight.zPosition = 6
+        processorOutputZoneNode.addChild(outputHighlight)
+
+        highlightNodes[processorZoneInputID] = inputHighlight
+        highlightNodes[processorZoneOutputID] = outputHighlight
     }
 
     private func setupCameraAndHUD() {
@@ -217,15 +350,22 @@ final class GamePlayScene: SKScene {
         guidanceLabel.fontColor = UIColor(red: 0.78, green: 0.9, blue: 1.0, alpha: 1)
         guidanceLabel.position = CGPoint(x: -size.width * 0.45, y: size.height * 0.36)
 
+        processorStatusLabel.fontSize = 15
+        processorStatusLabel.horizontalAlignmentMode = .left
+        processorStatusLabel.verticalAlignmentMode = .center
+        processorStatusLabel.fontColor = UIColor(red: 1.0, green: 0.88, blue: 0.66, alpha: 1)
+        processorStatusLabel.position = CGPoint(x: -size.width * 0.45, y: size.height * 0.30)
+
         hudNode.zPosition = 1000
         hudNode.addChild(carryLabel)
         hudNode.addChild(guidanceLabel)
+        hudNode.addChild(processorStatusLabel)
         cameraNode.addChild(hudNode)
     }
 
     private func updateMovement(dt: TimeInterval) {
-        let acceleration = CGFloat(config.player.playerAcceleration)
-        let effectiveMaxSpeed = CGFloat(orchestrator.effectiveMaxSpeed)
+        let acceleration = tunedPlayerAcceleration
+        let effectiveMaxSpeed = max(120, tunedPlayerMaxSpeed)
 
         var inputVector = CGVector.zero
         if let location = touchLocation {
@@ -245,9 +385,8 @@ final class GamePlayScene: SKScene {
             velocity.dx += inputVector.dx * acceleration * CGFloat(dt)
             velocity.dy += inputVector.dy * acceleration * CGFloat(dt)
             let speed = sqrt(velocity.dx * velocity.dx + velocity.dy * velocity.dy)
-            let maxAllowed = max(120, effectiveMaxSpeed)
-            if speed > maxAllowed {
-                let k = maxAllowed / speed
+            if speed > effectiveMaxSpeed {
+                let k = effectiveMaxSpeed / speed
                 velocity.dx *= k
                 velocity.dy *= k
             }
@@ -257,7 +396,7 @@ final class GamePlayScene: SKScene {
     }
 
     private func updateCamera(dt: TimeInterval) {
-        let followStrength: CGFloat = min(1, CGFloat(dt) * 8)
+        let followStrength: CGFloat = min(1, CGFloat(dt) * tunedCameraFollowSmoothing)
         cameraNode.position.x += (player.position.x - cameraNode.position.x) * followStrength
         cameraNode.position.y += (player.position.y - cameraNode.position.y) * followStrength
     }
@@ -270,7 +409,6 @@ final class GamePlayScene: SKScene {
         let carryCapacity = max(1, orchestrator.effectiveCarryCapacity)
         guard state.carryAmount < carryCapacity else { return }
 
-        let pickupRadius = CGFloat(config.player.pickupRadius)
         let nearest = resourceNodes
             .filter { _, node in
                 node.isHidden == false && node.parent != nil
@@ -280,14 +418,93 @@ final class GamePlayScene: SKScene {
             }
 
         guard let (id, node) = nearest else { return }
-        let distance = player.position.distance(to: node.position)
-        guard distance <= pickupRadius else { return }
+        guard player.position.distance(to: node.position) <= tunedPickupRadius else { return }
 
-        _ = id
         orchestrator.perform(.collectRaw(units: 1))
         node.isHidden = true
         interactionZoneNodes[id]?.isHidden = true
         resourceRespawnTime[id] = currentTime + 2.0
+    }
+
+    private func runProcessorInteractions(currentTime: TimeInterval) {
+        let state = orchestrator.sessionState
+
+        if currentTime - lastDepositTime > 0.2,
+           state.carryAmount > 0,
+           player.position.distance(to: processorInputZoneNode.position) <= 56 {
+            lastDepositTime = currentTime
+            orchestrator.perform(.depositRawForProcessing(units: state.carryAmount))
+        }
+
+        if currentTime - lastOutputCollectTime > 0.2,
+           state.processingQueue.processedReadyUnits > 0,
+           player.position.distance(to: processorOutputZoneNode.position) <= 50 {
+            lastOutputCollectTime = currentTime
+            orchestrator.perform(.collectProcessedOutput(units: state.processingQueue.processedReadyUnits))
+        }
+    }
+
+    private func updateProcessingLifecycle(dt: TimeInterval) {
+        let state = orchestrator.sessionState
+        if processingTimeRemaining <= 0,
+           state.processingQueue.queuedRawUnits >= config.processing.inputPerBatch {
+            currentBatchTotalTime = max(0.3, orchestrator.effectiveProcessTimeSec)
+            processingTimeRemaining = currentBatchTotalTime
+        }
+
+        guard processingTimeRemaining > 0 else { return }
+        processingTimeRemaining = max(0, processingTimeRemaining - dt)
+
+        if processingTimeRemaining <= 0 {
+            orchestrator.perform(.processingCompleted)
+        }
+    }
+
+    private func updateProcessorVisualState() {
+        let state = orchestrator.sessionState
+        let hasReadyOutput = state.processingQueue.processedReadyUnits > 0
+        let isProcessing = processingTimeRemaining > 0
+
+        if hasReadyOutput {
+            processorBaseNode.fillColor = UIColor(red: 0.27, green: 0.36, blue: 0.2, alpha: 1)
+            processorBaseNode.strokeColor = UIColor(red: 0.85, green: 0.95, blue: 0.58, alpha: 1)
+            processorLabel.text = "Processor: ready"
+
+            if processorOutputZoneNode.action(forKey: "readyPulse") == nil {
+                let pulse = SKAction.sequence([
+                    SKAction.fadeAlpha(to: 1.0, duration: 0.3),
+                    SKAction.fadeAlpha(to: 0.55, duration: 0.3)
+                ])
+                processorOutputZoneNode.run(SKAction.repeatForever(pulse), withKey: "readyPulse")
+            }
+        } else if isProcessing {
+            processorBaseNode.fillColor = UIColor(red: 0.22, green: 0.29, blue: 0.39, alpha: 1)
+            processorBaseNode.strokeColor = UIColor(red: 0.58, green: 0.79, blue: 1.0, alpha: 1)
+            processorLabel.text = "Processor: processing"
+            processorOutputZoneNode.removeAction(forKey: "readyPulse")
+            processorOutputZoneNode.alpha = 1.0
+        } else {
+            processorBaseNode.fillColor = UIColor(red: 0.22, green: 0.24, blue: 0.28, alpha: 1)
+            processorBaseNode.strokeColor = UIColor(red: 0.67, green: 0.72, blue: 0.8, alpha: 1)
+            processorLabel.text = "Processor: idle"
+            processorOutputZoneNode.removeAction(forKey: "readyPulse")
+            processorOutputZoneNode.alpha = 1.0
+        }
+
+        let progress: CGFloat
+        if isProcessing, currentBatchTotalTime > 0 {
+            progress = CGFloat(1.0 - (processingTimeRemaining / currentBatchTotalTime))
+        } else {
+            progress = 0
+        }
+
+        let width = max(2, 138 * progress)
+        processorProgressFill.path = CGPath(
+            roundedRect: CGRect(x: -69, y: -4, width: width, height: 8),
+            cornerWidth: 4,
+            cornerHeight: 4,
+            transform: nil
+        )
     }
 
     private func updateResourceRespawns(currentTime: TimeInterval) {
@@ -300,10 +517,11 @@ final class GamePlayScene: SKScene {
 
     private func updateHighlighting() {
         let guidance = orchestrator.sessionState.guidanceState
-        let candidates: [InteractionCandidate] = resourceNodes.compactMap { id, node in
+
+        var candidates: [InteractionCandidate] = resourceNodes.compactMap { id, node in
             guard node.isHidden == false else { return nil }
             let distance = player.position.distance(to: node.position)
-            let inRange = distance <= CGFloat(config.player.pickupRadius)
+            let inRange = distance <= tunedPickupRadius
             return InteractionCandidate(
                 zoneID: id,
                 kind: .resource,
@@ -312,7 +530,30 @@ final class GamePlayScene: SKScene {
             )
         }
 
+        let inputDistance = player.position.distance(to: processorInputZoneNode.position)
+        candidates.append(
+            InteractionCandidate(
+                zoneID: processorZoneInputID,
+                kind: .processorInput,
+                distanceToPlayer: inputDistance,
+                isWithinInteractionRadius: inputDistance <= 56
+            )
+        )
+
+        let outputDistance = player.position.distance(to: processorOutputZoneNode.position)
+        let outputAvailable = orchestrator.sessionState.processingQueue.processedReadyUnits > 0
+        candidates.append(
+            InteractionCandidate(
+                zoneID: processorZoneOutputID,
+                kind: .processorOutput,
+                distanceToPlayer: outputDistance,
+                isWithinInteractionRadius: outputAvailable && outputDistance <= 50
+            )
+        )
+
         let decision = PrimaryTargetResolver.resolve(candidates: candidates, guidance: guidance)
+        currentPrimaryTargetID = decision.primaryZoneID
+
         for (id, highlight) in highlightNodes {
             let active = decision.primaryZoneID == id
             if active {
@@ -335,9 +576,175 @@ final class GamePlayScene: SKScene {
     private func refreshHUD() {
         let state = orchestrator.sessionState
         let capacity = max(1, orchestrator.effectiveCarryCapacity)
+
         carryLabel.text = "Carry: \(state.carryAmount)/\(capacity)"
         guidanceLabel.text = GuidanceTextPresenter.text(for: state.guidanceState)
+
+        if state.processingQueue.processedReadyUnits > 0 {
+            processorStatusLabel.text = "Processor: ready (\(state.processingQueue.processedReadyUnits))"
+        } else if processingTimeRemaining > 0 {
+            processorStatusLabel.text = String(format: "Processor: processing (%.1fs)", processingTimeRemaining)
+        } else {
+            processorStatusLabel.text = "Processor: idle"
+        }
     }
+
+    #if DEBUG
+    private func setupDebugOverlay() {
+        pickupRadiusDebugCircle.strokeColor = UIColor(red: 0.95, green: 0.2, blue: 0.95, alpha: 0.85)
+        pickupRadiusDebugCircle.lineWidth = 1.5
+        pickupRadiusDebugCircle.fillColor = .clear
+        pickupRadiusDebugCircle.zPosition = 9
+        worldNode.addChild(pickupRadiusDebugCircle)
+
+        debugPanelNode.zPosition = 1100
+
+        debugSpeedLabel.fontSize = 12
+        debugSpeedLabel.horizontalAlignmentMode = .left
+        debugSpeedLabel.verticalAlignmentMode = .center
+        debugSpeedLabel.fontColor = .white
+        debugSpeedLabel.position = CGPoint(x: -size.width * 0.45, y: size.height * 0.24)
+
+        debugTargetLabel.fontSize = 12
+        debugTargetLabel.horizontalAlignmentMode = .left
+        debugTargetLabel.verticalAlignmentMode = .center
+        debugTargetLabel.fontColor = .white
+        debugTargetLabel.position = CGPoint(x: -size.width * 0.45, y: size.height * 0.20)
+
+        debugParamsLabel.fontSize = 11
+        debugParamsLabel.horizontalAlignmentMode = .left
+        debugParamsLabel.verticalAlignmentMode = .center
+        debugParamsLabel.fontColor = UIColor(red: 0.78, green: 1.0, blue: 0.78, alpha: 1)
+        debugParamsLabel.position = CGPoint(x: -size.width * 0.45, y: size.height * 0.16)
+
+        debugProcessorLabel.fontSize = 11
+        debugProcessorLabel.horizontalAlignmentMode = .left
+        debugProcessorLabel.verticalAlignmentMode = .center
+        debugProcessorLabel.fontColor = UIColor(red: 1.0, green: 0.9, blue: 0.66, alpha: 1)
+        debugProcessorLabel.position = CGPoint(x: -size.width * 0.45, y: size.height * 0.12)
+
+        debugPanelNode.addChild(debugSpeedLabel)
+        debugPanelNode.addChild(debugTargetLabel)
+        debugPanelNode.addChild(debugParamsLabel)
+        debugPanelNode.addChild(debugProcessorLabel)
+
+        let controls: [(String, String, CGFloat, CGFloat)] = [
+            ("A-", "dbg_accel_minus", -size.width * 0.45, size.height * 0.07),
+            ("A+", "dbg_accel_plus", -size.width * 0.38, size.height * 0.07),
+            ("V-", "dbg_speed_minus", -size.width * 0.30, size.height * 0.07),
+            ("V+", "dbg_speed_plus", -size.width * 0.23, size.height * 0.07),
+            ("R-", "dbg_radius_minus", -size.width * 0.15, size.height * 0.07),
+            ("R+", "dbg_radius_plus", -size.width * 0.08, size.height * 0.07),
+            ("C-", "dbg_camera_minus", 0.00, size.height * 0.07),
+            ("C+", "dbg_camera_plus", 0.07, size.height * 0.07)
+        ]
+
+        for (title, name, x, y) in controls {
+            debugPanelNode.addChild(makeDebugButton(title: title, name: name, position: CGPoint(x: x, y: y)))
+        }
+
+        cameraNode.addChild(debugPanelNode)
+    }
+
+    private func makeDebugButton(title: String, name: String, position: CGPoint) -> SKNode {
+        let container = SKShapeNode(rectOf: CGSize(width: 48, height: 24), cornerRadius: 5)
+        container.name = name
+        container.position = position
+        container.fillColor = UIColor(red: 0.18, green: 0.18, blue: 0.22, alpha: 0.95)
+        container.strokeColor = UIColor(red: 0.65, green: 0.9, blue: 1.0, alpha: 1)
+        container.lineWidth = 1.2
+
+        let label = SKLabelNode(fontNamed: "Menlo-Bold")
+        label.name = name
+        label.text = title
+        label.fontSize = 11
+        label.verticalAlignmentMode = .center
+        label.horizontalAlignmentMode = .center
+        label.fontColor = .white
+        container.addChild(label)
+        return container
+    }
+
+    private func handleDebugTap(_ touch: UITouch) -> Bool {
+        let point = touch.location(in: cameraNode)
+        let nodesAtPoint = cameraNode.nodes(at: point)
+        guard let buttonName = nodesAtPoint.compactMap({ $0.name }).first(where: { $0.hasPrefix("dbg_") }) else {
+            return false
+        }
+
+        switch buttonName {
+        case "dbg_accel_minus": tunedPlayerAcceleration = max(100, tunedPlayerAcceleration - 50)
+        case "dbg_accel_plus": tunedPlayerAcceleration = min(2500, tunedPlayerAcceleration + 50)
+        case "dbg_speed_minus": tunedPlayerMaxSpeed = max(80, tunedPlayerMaxSpeed - 10)
+        case "dbg_speed_plus": tunedPlayerMaxSpeed = min(600, tunedPlayerMaxSpeed + 10)
+        case "dbg_radius_minus":
+            tunedPickupRadius = max(24, tunedPickupRadius - 4)
+            updateResourceInteractionZoneRadii()
+        case "dbg_radius_plus":
+            tunedPickupRadius = min(200, tunedPickupRadius + 4)
+            updateResourceInteractionZoneRadii()
+        case "dbg_camera_minus": tunedCameraFollowSmoothing = max(1, tunedCameraFollowSmoothing - 0.5)
+        case "dbg_camera_plus": tunedCameraFollowSmoothing = min(20, tunedCameraFollowSmoothing + 0.5)
+        default: break
+        }
+
+        return true
+    }
+
+    private func updateResourceInteractionZoneRadii() {
+        for (_, zoneNode) in interactionZoneNodes {
+            zoneNode.path = CGPath(
+                ellipseIn: CGRect(x: -tunedPickupRadius, y: -tunedPickupRadius, width: tunedPickupRadius * 2, height: tunedPickupRadius * 2),
+                transform: nil
+            )
+            let interactionBody = SKPhysicsBody(circleOfRadius: tunedPickupRadius)
+            interactionBody.isDynamic = false
+            interactionBody.affectedByGravity = false
+            interactionBody.categoryBitMask = CollisionLayer.interactionZone.rawValue
+            interactionBody.collisionBitMask = CollisionPolicy.interactionZoneCollisionMask.rawValue
+            interactionBody.contactTestBitMask = CollisionLayer.player.rawValue
+            zoneNode.physicsBody = interactionBody
+        }
+    }
+
+    private func updateDebugOverlay() {
+        let speed = sqrt(velocity.dx * velocity.dx + velocity.dy * velocity.dy)
+        debugSpeedLabel.text = String(format: "Speed: %.1f", speed)
+
+        if let targetID = currentPrimaryTargetID {
+            debugTargetLabel.text = "Primary target: \(targetID)"
+        } else {
+            debugTargetLabel.text = "Primary target: -"
+        }
+
+        debugParamsLabel.text = String(
+            format: "A %.0f | V %.0f | R %.0f | C %.1f",
+            tunedPlayerAcceleration,
+            tunedPlayerMaxSpeed,
+            tunedPickupRadius,
+            tunedCameraFollowSmoothing
+        )
+
+        let queue = orchestrator.sessionState.processingQueue
+        debugProcessorLabel.text = String(
+            format: "Q:%d T:%.1f O:%d",
+            queue.queuedRawUnits,
+            processingTimeRemaining,
+            queue.processedReadyUnits
+        )
+
+        pickupRadiusDebugCircle.position = player.position
+        pickupRadiusDebugCircle.path = CGPath(
+            ellipseIn: CGRect(
+                x: -tunedPickupRadius,
+                y: -tunedPickupRadius,
+                width: tunedPickupRadius * 2,
+                height: tunedPickupRadius * 2
+            ),
+            transform: nil
+        )
+    }
+    #endif
 }
 
 private extension CGPoint {
