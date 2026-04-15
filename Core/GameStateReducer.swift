@@ -39,6 +39,11 @@ public final class GameStateReducer {
             state.processedInventory -= sold
             state.coins += sold * config.sell.processedUnitPrice
 
+        case let .sellProcessedAtUnitPrice(units, unitPrice):
+            let sold = min(units, state.processedInventory)
+            state.processedInventory -= sold
+            state.coins += sold * max(0, unitPrice)
+
         case let .unlockZone(id):
             guard !state.unlockedZoneIDs.contains(id) else { break }
             guard let zone = config.zones.first(where: { $0.id == id }) else { break }

@@ -12,7 +12,8 @@ final class GamePlayScene: SKScene {
 
     private let carryLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
     private let guidanceLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
-    private let processorStatusLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
+    private let processorAStatusLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
+    private let processorBStatusLabel = SKLabelNode(fontNamed: "AvenirNext-Medium")
     private let coinsLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
 
     private let upgradeToggleButton = SKShapeNode(rectOf: CGSize(width: 68, height: 26), cornerRadius: 6)
@@ -34,6 +35,12 @@ final class GamePlayScene: SKScene {
     private let processorProgressBackground = SKShapeNode(rectOf: CGSize(width: 140, height: 10), cornerRadius: 5)
     private let processorProgressFill = SKShapeNode(rectOf: CGSize(width: 138, height: 8), cornerRadius: 4)
     private let processorLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+    private let processorBBaseNode = SKShapeNode(rectOf: CGSize(width: 190, height: 140), cornerRadius: 10)
+    private let processorBInputZoneNode = SKShapeNode(circleOfRadius: 56)
+    private let processorBOutputZoneNode = SKShapeNode(circleOfRadius: 50)
+    private let processorBProgressBackground = SKShapeNode(rectOf: CGSize(width: 140, height: 10), cornerRadius: 5)
+    private let processorBProgressFill = SKShapeNode(rectOf: CGSize(width: 138, height: 8), cornerRadius: 4)
+    private let processorBLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
 
     private let sellZoneNode = SKShapeNode(circleOfRadius: 58)
     private let sellZoneLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
@@ -60,8 +67,20 @@ final class GamePlayScene: SKScene {
     private var tunedPickupRadius: CGFloat
     private var tunedCameraFollowSmoothing: CGFloat = 0.18
 
-    private var processingTimeRemaining: TimeInterval = 0
-    private var currentBatchTotalTime: TimeInterval = 0
+    private var processorAQueuedRawUnits: Int = 0
+    private var processorAReadyUnits: Int = 0
+    private var processorATimeRemaining: TimeInterval = 0
+    private var processorABatchTotalTime: TimeInterval = 0
+
+    private var processorBQueuedRawUnits: Int = 0
+    private var processorBReadyUnits: Int = 0
+    private var processorBTimeRemaining: TimeInterval = 0
+    private var processorBBatchTotalTime: TimeInterval = 0
+    private let processorBProcessTimeMultiplier: Double = 1.6
+    private let processorBSellPriceMultiplier: Double = 1.8
+
+    private var processedInventoryA: Int = 0
+    private var processedInventoryB: Int = 0
 
     private enum LoopStage {
         case awaitCollect
@@ -90,6 +109,8 @@ final class GamePlayScene: SKScene {
 
     private let processorZoneInputID = 9001
     private let processorZoneOutputID = 9002
+    private let processorBZoneInputID = 9004
+    private let processorBZoneOutputID = 9005
     private let sellZoneID = 9003
     private let gateZoneBaseID = 9100
 
@@ -129,11 +150,13 @@ final class GamePlayScene: SKScene {
         buildPlayer()
         buildResources()
         buildProcessor()
+        buildProcessorB()
         buildSellZone()
         buildUnlockGates()
         setupCameraAndHUD()
         setupUpgradesPanel()
         applyUnlockVisualStateFromSession()
+        bootstrapProcessorRuntimeFromSession()
 
         #if DEBUG
         setupDebugOverlay()
@@ -421,6 +444,98 @@ final class GamePlayScene: SKScene {
         highlightNodes[processorZoneInputID] = inputHighlight
         highlightNodes[processorZoneOutputID] = outputHighlight
     }
+
+    private func buildProcessorB() {
+        let center = CGPoint(x: 300, y: -120)
+
+        processorBBaseNode.position = center
+        processorBBaseNode.fillColor = UIColor(red: 0.24, green: 0.2, blue: 0.32, alpha: 1)
+        processorBBaseNode.strokeColor = UIColor(red: 0.77, green: 0.68, blue: 0.95, alpha: 1)
+        processorBBaseNode.lineWidth = 3
+        processorBBaseNode.zPosition = 3
+        worldNode.addChild(processorBBaseNode)
+
+        processorBLabel.fontSize = 13
+        processorBLabel.fontColor = .white
+        processorBLabel.text = "Processor B: idle"
+        processorBLabel.position = CGPoint(x: 0, y: 38)
+        processorBLabel.zPosition = 5
+        processorBBaseNode.addChild(processorBLabel)
+
+        processorBProgressBackground.fillColor = UIColor(red: 0.12, green: 0.12, blue: 0.14, alpha: 1)
+        processorBProgressBackground.strokeColor = UIColor(red: 0.43, green: 0.4, blue: 0.53, alpha: 1)
+        processorBProgressBackground.lineWidth = 1
+        processorBProgressBackground.position = CGPoint(x: 0, y: 16)
+        processorBProgressBackground.zPosition = 4
+        processorBBaseNode.addChild(processorBProgressBackground)
+
+        processorBProgressFill.fillColor = UIColor(red: 0.78, green: 0.6, blue: 1.0, alpha: 1)
+        processorBProgressFill.strokeColor = .clear
+        processorBProgressFill.position = CGPoint(x: 0, y: 16)
+        processorBProgressFill.zPosition = 5
+        processorBBaseNode.addChild(processorBProgressFill)
+
+        processorBInputZoneNode.position = CGPoint(x: center.x - 112, y: center.y - 12)
+        processorBInputZoneNode.fillColor = UIColor(red: 0.56, green: 0.34, blue: 0.9, alpha: 0.25)
+        processorBInputZoneNode.strokeColor = UIColor(red: 0.82, green: 0.67, blue: 1.0, alpha: 1)
+        processorBInputZoneNode.lineWidth = 2
+        processorBInputZoneNode.zPosition = 2
+        worldNode.addChild(processorBInputZoneNode)
+
+        let inputBody = SKPhysicsBody(circleOfRadius: 56)
+        inputBody.isDynamic = false
+        inputBody.affectedByGravity = false
+        inputBody.categoryBitMask = CollisionLayer.interactionZone.rawValue
+        inputBody.collisionBitMask = CollisionPolicy.interactionZoneCollisionMask.rawValue
+        inputBody.contactTestBitMask = CollisionLayer.player.rawValue
+        processorBInputZoneNode.physicsBody = inputBody
+
+        let inputHighlight = SKShapeNode(circleOfRadius: 63)
+        inputHighlight.strokeColor = UIColor(red: 0.95, green: 0.72, blue: 1.0, alpha: 1)
+        inputHighlight.lineWidth = 2
+        inputHighlight.glowWidth = 2
+        inputHighlight.fillColor = .clear
+        inputHighlight.isHidden = true
+        inputHighlight.zPosition = 6
+        processorBInputZoneNode.addChild(inputHighlight)
+
+        processorBOutputZoneNode.position = CGPoint(x: center.x + 112, y: center.y - 12)
+        processorBOutputZoneNode.fillColor = UIColor(red: 0.75, green: 0.56, blue: 0.95, alpha: 0.22)
+        processorBOutputZoneNode.strokeColor = UIColor(red: 0.9, green: 0.78, blue: 1.0, alpha: 1)
+        processorBOutputZoneNode.lineWidth = 2
+        processorBOutputZoneNode.zPosition = 2
+        worldNode.addChild(processorBOutputZoneNode)
+
+        let outputBody = SKPhysicsBody(circleOfRadius: 50)
+        outputBody.isDynamic = false
+        outputBody.affectedByGravity = false
+        outputBody.categoryBitMask = CollisionLayer.interactionZone.rawValue
+        outputBody.collisionBitMask = CollisionPolicy.interactionZoneCollisionMask.rawValue
+        outputBody.contactTestBitMask = CollisionLayer.player.rawValue
+        processorBOutputZoneNode.physicsBody = outputBody
+
+        let outputHighlight = SKShapeNode(circleOfRadius: 57)
+        outputHighlight.strokeColor = UIColor(red: 0.95, green: 0.72, blue: 1.0, alpha: 1)
+        outputHighlight.lineWidth = 2
+        outputHighlight.glowWidth = 2
+        outputHighlight.fillColor = .clear
+        outputHighlight.isHidden = true
+        outputHighlight.zPosition = 6
+        processorBOutputZoneNode.addChild(outputHighlight)
+
+        highlightNodes[processorBZoneInputID] = inputHighlight
+        highlightNodes[processorBZoneOutputID] = outputHighlight
+    }
+
+    private func bootstrapProcessorRuntimeFromSession() {
+        let state = orchestrator.sessionState
+        processorAQueuedRawUnits = state.processingQueue.queuedRawUnits
+        processorAReadyUnits = state.processingQueue.processedReadyUnits
+        processorBQueuedRawUnits = 0
+        processorBReadyUnits = 0
+        processedInventoryA = state.processedInventory
+        processedInventoryB = 0
+    }
     private func buildSellZone() {
         let position = CGPoint(x: 240, y: -220)
         sellZoneNode.position = position
@@ -537,11 +652,17 @@ final class GamePlayScene: SKScene {
         guidanceLabel.fontColor = UIColor(red: 0.78, green: 0.9, blue: 1.0, alpha: 1)
         guidanceLabel.position = CGPoint(x: -size.width * 0.45, y: size.height * 0.34)
 
-        processorStatusLabel.fontSize = 15
-        processorStatusLabel.horizontalAlignmentMode = .left
-        processorStatusLabel.verticalAlignmentMode = .center
-        processorStatusLabel.fontColor = UIColor(red: 1.0, green: 0.88, blue: 0.66, alpha: 1)
-        processorStatusLabel.position = CGPoint(x: -size.width * 0.45, y: size.height * 0.30)
+        processorAStatusLabel.fontSize = 15
+        processorAStatusLabel.horizontalAlignmentMode = .left
+        processorAStatusLabel.verticalAlignmentMode = .center
+        processorAStatusLabel.fontColor = UIColor(red: 1.0, green: 0.88, blue: 0.66, alpha: 1)
+        processorAStatusLabel.position = CGPoint(x: -size.width * 0.45, y: size.height * 0.30)
+
+        processorBStatusLabel.fontSize = 15
+        processorBStatusLabel.horizontalAlignmentMode = .left
+        processorBStatusLabel.verticalAlignmentMode = .center
+        processorBStatusLabel.fontColor = UIColor(red: 0.86, green: 0.86, blue: 1.0, alpha: 1)
+        processorBStatusLabel.position = CGPoint(x: -size.width * 0.45, y: size.height * 0.26)
 
         upgradeToggleButton.name = "btn_upg_toggle"
         upgradeToggleButton.fillColor = UIColor(red: 0.2, green: 0.2, blue: 0.26, alpha: 0.96)
@@ -561,7 +682,8 @@ final class GamePlayScene: SKScene {
         hudNode.addChild(carryLabel)
         hudNode.addChild(coinsLabel)
         hudNode.addChild(guidanceLabel)
-        hudNode.addChild(processorStatusLabel)
+        hudNode.addChild(processorAStatusLabel)
+        hudNode.addChild(processorBStatusLabel)
         hudNode.addChild(upgradeToggleButton)
         cameraNode.addChild(hudNode)
     }
@@ -771,35 +893,52 @@ final class GamePlayScene: SKScene {
 
         let zoneID = resourceZoneByID[id] ?? 1
         let pickupUnits = pickupMultiplier(for: zoneID)
-        let beforeCollect = orchestrator.sessionState
+        let nearProcessorInput = player.position.distance(to: processorInputZoneNode.position) <= 72
+        var acceptedToCarry = 0
+        var autoQueuedFromPickup = 0
 
-        orchestrator.perform(.collectRaw(units: pickupUnits))
-        let afterCollect = orchestrator.sessionState
-        let acceptedToCarry = max(0, afterCollect.carryAmount - beforeCollect.carryAmount)
-        let overflow = max(0, pickupUnits - acceptedToCarry)
-        registerCollect(units: pickupUnits, fromZoneID: zoneID, currentTime: currentTime)
+        if nearProcessorInput && pickupUnits > 1 {
+            var remaining = pickupUnits
+            while remaining > 0 {
+                let before = orchestrator.sessionState
+                orchestrator.perform(.collectRaw(units: remaining))
+                let after = orchestrator.sessionState
+                let accepted = max(0, after.carryAmount - before.carryAmount)
+                guard accepted > 0 else { break }
 
-        if overflow > 0, player.position.distance(to: processorInputZoneNode.position) <= 72 {
-            let carryBeforeDeposit = orchestrator.sessionState.carryAmount
-            orchestrator.perform(.depositRawForProcessing(units: overflow))
-            let carryAfterDeposit = orchestrator.sessionState.carryAmount
-            let deposited = max(0, carryBeforeDeposit - carryAfterDeposit)
-            if deposited > 0 {
+                acceptedToCarry += accepted
+                remaining -= accepted
+
+                let carryBeforeDeposit = orchestrator.sessionState.carryAmount
+                orchestrator.perform(.depositRawForProcessing(units: accepted))
+                let carryAfterDeposit = orchestrator.sessionState.carryAmount
+                let deposited = max(0, carryBeforeDeposit - carryAfterDeposit)
+                autoQueuedFromPickup += deposited
                 registerDeposit(units: deposited)
-                flashZone(processorInputZoneNode, color: UIColor(red: 0.45, green: 0.75, blue: 1.0, alpha: 0.60))
-                showFloatingText(
-                    text: "auto queue +\(deposited)",
-                    color: UIColor(red: 0.70, green: 0.90, blue: 1.0, alpha: 1),
-                    at: CGPoint(x: processorInputZoneNode.position.x, y: processorInputZoneNode.position.y + 10)
-                )
             }
+        } else {
+            let beforeCollect = orchestrator.sessionState
+            orchestrator.perform(.collectRaw(units: pickupUnits))
+            let afterCollect = orchestrator.sessionState
+            acceptedToCarry = max(0, afterCollect.carryAmount - beforeCollect.carryAmount)
+        }
+
+        registerCollect(units: pickupUnits, fromZoneID: zoneID, currentTime: currentTime)
+        if autoQueuedFromPickup > 0 {
+            flashZone(processorInputZoneNode, color: UIColor(red: 0.45, green: 0.75, blue: 1.0, alpha: 0.60))
+            showFloatingText(
+                text: "auto queue +\(autoQueuedFromPickup)",
+                color: UIColor(red: 0.70, green: 0.90, blue: 1.0, alpha: 1),
+                at: CGPoint(x: processorInputZoneNode.position.x, y: processorInputZoneNode.position.y + 10)
+            )
         }
 
         interactionZoneNodes[id]?.isHidden = true
         resourceRespawnTime[id] = currentTime + 2.0
 
         playPickupFeedback(for: node)
-        showFloatingText(text: "+\(pickupUnits)", color: UIColor(red: 1, green: 0.86, blue: 0.2, alpha: 1), at: node.position)
+        let totalPickupApplied = acceptedToCarry + autoQueuedFromPickup
+        showFloatingText(text: "+\(totalPickupApplied)", color: UIColor(red: 1, green: 0.86, blue: 0.2, alpha: 1), at: node.position)
         if pickupUnits > 1 {
             showFloatingText(
                 text: "x\(pickupUnits) pickup",
@@ -863,26 +1002,56 @@ final class GamePlayScene: SKScene {
         let state = orchestrator.sessionState
 
         if currentTime - lastDepositTime > 0.2,
-           state.carryAmount > 0,
-           player.position.distance(to: processorInputZoneNode.position) <= 56 {
+           state.carryAmount > 0 {
             lastDepositTime = currentTime
-            let deposited = state.carryAmount
-            orchestrator.perform(.depositRawForProcessing(units: deposited))
-            registerDeposit(units: deposited)
-            flashZone(processorInputZoneNode, color: UIColor(red: 0.45, green: 0.75, blue: 1.0, alpha: 0.75))
-            showFloatingText(text: "-\(deposited) raw", color: UIColor(red: 0.63, green: 0.85, blue: 1.0, alpha: 1), at: processorInputZoneNode.position)
+            let distA = player.position.distance(to: processorInputZoneNode.position)
+            let distB = player.position.distance(to: processorBInputZoneNode.position)
+            let canDepositA = distA <= 56
+            let canDepositB = distB <= 56
+
+            if canDepositA || canDepositB {
+                let depositToB = canDepositB && (!canDepositA || distB < distA)
+                let deposited = state.carryAmount
+                orchestrator.perform(.depositRawForProcessing(units: deposited))
+                registerDeposit(units: deposited)
+                if depositToB {
+                    processorBQueuedRawUnits += deposited
+                    flashZone(processorBInputZoneNode, color: UIColor(red: 0.74, green: 0.56, blue: 0.98, alpha: 0.75))
+                    showFloatingText(text: "-\(deposited) raw", color: UIColor(red: 0.88, green: 0.78, blue: 1.0, alpha: 1), at: processorBInputZoneNode.position)
+                } else {
+                    processorAQueuedRawUnits += deposited
+                    flashZone(processorInputZoneNode, color: UIColor(red: 0.45, green: 0.75, blue: 1.0, alpha: 0.75))
+                    showFloatingText(text: "-\(deposited) raw", color: UIColor(red: 0.63, green: 0.85, blue: 1.0, alpha: 1), at: processorInputZoneNode.position)
+                }
+            }
         }
 
-        let refreshedState = orchestrator.sessionState
-        if currentTime - lastOutputCollectTime > 0.2,
-           refreshedState.processingQueue.processedReadyUnits > 0,
-           player.position.distance(to: processorOutputZoneNode.position) <= 50 {
+        if currentTime - lastOutputCollectTime > 0.2 {
+            let canCollectA = processorAReadyUnits > 0 && player.position.distance(to: processorOutputZoneNode.position) <= 50
+            let canCollectB = processorBReadyUnits > 0 && player.position.distance(to: processorBOutputZoneNode.position) <= 50
+            guard canCollectA || canCollectB else { return }
+
             lastOutputCollectTime = currentTime
-            let collected = refreshedState.processingQueue.processedReadyUnits
+            let collectFromB = canCollectB && (!canCollectA || player.position.distance(to: processorBOutputZoneNode.position) < player.position.distance(to: processorOutputZoneNode.position))
+            let collected = collectFromB ? processorBReadyUnits : processorAReadyUnits
+            guard collected > 0 else { return }
+            let beforeCollectState = orchestrator.sessionState
             orchestrator.perform(.collectProcessedOutput(units: collected))
-            registerProcessedOutputCollected(units: collected)
-            flashZone(processorOutputZoneNode, color: UIColor(red: 1.0, green: 0.82, blue: 0.35, alpha: 0.75))
-            showFloatingText(text: "+\(collected) processed", color: UIColor(red: 1.0, green: 0.92, blue: 0.55, alpha: 1), at: processorOutputZoneNode.position)
+            let afterCollectState = orchestrator.sessionState
+            let actuallyCollected = max(0, afterCollectState.processedInventory - beforeCollectState.processedInventory)
+            guard actuallyCollected > 0 else { return }
+            registerProcessedOutputCollected(units: actuallyCollected)
+            if collectFromB {
+                processorBReadyUnits -= actuallyCollected
+                processedInventoryB += actuallyCollected
+                flashZone(processorBOutputZoneNode, color: UIColor(red: 0.9, green: 0.72, blue: 1.0, alpha: 0.75))
+                showFloatingText(text: "+\(actuallyCollected) premium", color: UIColor(red: 0.95, green: 0.88, blue: 1.0, alpha: 1), at: processorBOutputZoneNode.position)
+            } else {
+                processorAReadyUnits -= actuallyCollected
+                processedInventoryA += actuallyCollected
+                flashZone(processorOutputZoneNode, color: UIColor(red: 1.0, green: 0.82, blue: 0.35, alpha: 0.75))
+                showFloatingText(text: "+\(actuallyCollected) processed", color: UIColor(red: 1.0, green: 0.92, blue: 0.55, alpha: 1), at: processorOutputZoneNode.position)
+            }
         }
     }
     private func runSellInteractions(currentTime: TimeInterval) {
@@ -892,9 +1061,29 @@ final class GamePlayScene: SKScene {
         guard player.position.distance(to: sellZoneNode.position) <= 58 else { return }
 
         lastSellTime = currentTime
-        let soldUnits = state.processedInventory
-        let gained = soldUnits * config.sell.processedUnitPrice
-        orchestrator.perform(.sellProcessed(units: soldUnits))
+        let sellA = min(processedInventoryA, state.processedInventory)
+        let sellB = min(processedInventoryB, max(0, state.processedInventory - sellA))
+
+        let basePrice = config.sell.processedUnitPrice
+        let premiumPrice = Int((Double(basePrice) * processorBSellPriceMultiplier).rounded(.toNearestOrAwayFromZero))
+        var gained = 0
+        var soldUnits = 0
+
+        if sellA > 0 {
+            orchestrator.perform(.sellProcessed(units: sellA))
+            processedInventoryA -= sellA
+            gained += sellA * basePrice
+            soldUnits += sellA
+        }
+
+        if sellB > 0 {
+            orchestrator.perform(.sellProcessedAtUnitPrice(units: sellB, unitPrice: premiumPrice))
+            processedInventoryB -= sellB
+            gained += sellB * premiumPrice
+            soldUnits += sellB
+        }
+
+        guard soldUnits > 0 else { return }
         registerSell(units: soldUnits, gainedCoins: gained, currentTime: currentTime)
 
         flashZone(sellZoneNode, color: UIColor(red: 0.62, green: 1.0, blue: 0.62, alpha: 0.85))
@@ -944,19 +1133,47 @@ final class GamePlayScene: SKScene {
     }
 
     private func updateProcessingLifecycle(dt: TimeInterval) {
-        let state = orchestrator.sessionState
-        if processingTimeRemaining <= 0,
-           state.processingQueue.queuedRawUnits >= config.processing.inputPerBatch {
-            currentBatchTotalTime = max(0.3, orchestrator.effectiveProcessTimeSec)
-            processingTimeRemaining = currentBatchTotalTime
+        if processorATimeRemaining <= 0,
+           processorAQueuedRawUnits >= config.processing.inputPerBatch {
+            processorABatchTotalTime = max(0.3, orchestrator.effectiveProcessTimeSec)
+            processorATimeRemaining = processorABatchTotalTime
         }
 
-        guard processingTimeRemaining > 0 else { return }
-        processingTimeRemaining = max(0, processingTimeRemaining - dt)
+        if processorATimeRemaining > 0 {
+            processorATimeRemaining = max(0, processorATimeRemaining - dt)
+        }
 
-        if processingTimeRemaining <= 0 {
+        if processorATimeRemaining <= 0,
+           processorAQueuedRawUnits >= config.processing.inputPerBatch {
+            let before = orchestrator.sessionState.processingQueue
             orchestrator.perform(.processingCompleted)
-            registerProcessingCompleted()
+            let after = orchestrator.sessionState.processingQueue
+            if after.queuedRawUnits < before.queuedRawUnits {
+                registerProcessingCompleted()
+                processorAQueuedRawUnits -= config.processing.inputPerBatch
+                processorAReadyUnits += config.processing.outputPerBatch
+            }
+        }
+
+        if processorBTimeRemaining <= 0,
+           processorBQueuedRawUnits >= config.processing.inputPerBatch {
+            processorBBatchTotalTime = max(0.3, orchestrator.effectiveProcessTimeSec * processorBProcessTimeMultiplier)
+            processorBTimeRemaining = processorBBatchTotalTime
+        }
+
+        if processorBTimeRemaining > 0 {
+            processorBTimeRemaining = max(0, processorBTimeRemaining - dt)
+        }
+
+        if processorBTimeRemaining <= 0,
+           processorBQueuedRawUnits >= config.processing.inputPerBatch {
+            let before = orchestrator.sessionState.processingQueue
+            orchestrator.perform(.processingCompleted)
+            let after = orchestrator.sessionState.processingQueue
+            if after.queuedRawUnits < before.queuedRawUnits {
+                processorBQueuedRawUnits -= config.processing.inputPerBatch
+                processorBReadyUnits += config.processing.outputPerBatch
+            }
         }
     }
 
@@ -1010,14 +1227,13 @@ final class GamePlayScene: SKScene {
     }
 
     private func updateProcessorVisualState() {
-        let state = orchestrator.sessionState
-        let ready = state.processingQueue.processedReadyUnits > 0
-        let processing = processingTimeRemaining > 0
+        let ready = processorAReadyUnits > 0
+        let processing = processorATimeRemaining > 0
 
         if ready {
             processorBaseNode.fillColor = UIColor(red: 0.27, green: 0.36, blue: 0.2, alpha: 1)
             processorBaseNode.strokeColor = UIColor(red: 0.85, green: 0.95, blue: 0.58, alpha: 1)
-            processorLabel.text = "Processor: ready"
+            processorLabel.text = "Processor A: ready"
             if processorOutputZoneNode.action(forKey: "readyPulse") == nil {
                 let pulse = SKAction.sequence([
                     SKAction.fadeAlpha(to: 1.0, duration: 0.3),
@@ -1028,20 +1244,20 @@ final class GamePlayScene: SKScene {
         } else if processing {
             processorBaseNode.fillColor = UIColor(red: 0.22, green: 0.29, blue: 0.39, alpha: 1)
             processorBaseNode.strokeColor = UIColor(red: 0.58, green: 0.79, blue: 1.0, alpha: 1)
-            processorLabel.text = "Processor: processing"
+            processorLabel.text = "Processor A: processing"
             processorOutputZoneNode.removeAction(forKey: "readyPulse")
             processorOutputZoneNode.alpha = 1.0
         } else {
             processorBaseNode.fillColor = UIColor(red: 0.22, green: 0.24, blue: 0.28, alpha: 1)
             processorBaseNode.strokeColor = UIColor(red: 0.67, green: 0.72, blue: 0.8, alpha: 1)
-            processorLabel.text = "Processor: idle"
+            processorLabel.text = "Processor A: idle"
             processorOutputZoneNode.removeAction(forKey: "readyPulse")
             processorOutputZoneNode.alpha = 1.0
         }
 
         let progress: CGFloat
-        if processing, currentBatchTotalTime > 0 {
-            progress = CGFloat(1.0 - (processingTimeRemaining / currentBatchTotalTime))
+        if processing, processorABatchTotalTime > 0 {
+            progress = CGFloat(1.0 - (processorATimeRemaining / processorABatchTotalTime))
         } else {
             progress = 0
         }
@@ -1049,6 +1265,49 @@ final class GamePlayScene: SKScene {
         let width = max(2, 138 * progress)
         processorProgressFill.path = CGPath(
             roundedRect: CGRect(x: -69, y: -4, width: width, height: 8),
+            cornerWidth: 4,
+            cornerHeight: 4,
+            transform: nil
+        )
+
+        let readyB = processorBReadyUnits > 0
+        let processingB = processorBTimeRemaining > 0
+
+        if readyB {
+            processorBBaseNode.fillColor = UIColor(red: 0.31, green: 0.24, blue: 0.39, alpha: 1)
+            processorBBaseNode.strokeColor = UIColor(red: 0.9, green: 0.8, blue: 1.0, alpha: 1)
+            processorBLabel.text = "Processor B: ready"
+            if processorBOutputZoneNode.action(forKey: "readyPulse") == nil {
+                let pulse = SKAction.sequence([
+                    SKAction.fadeAlpha(to: 1.0, duration: 0.3),
+                    SKAction.fadeAlpha(to: 0.55, duration: 0.3)
+                ])
+                processorBOutputZoneNode.run(SKAction.repeatForever(pulse), withKey: "readyPulse")
+            }
+        } else if processingB {
+            processorBBaseNode.fillColor = UIColor(red: 0.26, green: 0.22, blue: 0.36, alpha: 1)
+            processorBBaseNode.strokeColor = UIColor(red: 0.83, green: 0.73, blue: 1.0, alpha: 1)
+            processorBLabel.text = "Processor B: processing"
+            processorBOutputZoneNode.removeAction(forKey: "readyPulse")
+            processorBOutputZoneNode.alpha = 1.0
+        } else {
+            processorBBaseNode.fillColor = UIColor(red: 0.24, green: 0.2, blue: 0.32, alpha: 1)
+            processorBBaseNode.strokeColor = UIColor(red: 0.77, green: 0.68, blue: 0.95, alpha: 1)
+            processorBLabel.text = "Processor B: idle"
+            processorBOutputZoneNode.removeAction(forKey: "readyPulse")
+            processorBOutputZoneNode.alpha = 1.0
+        }
+
+        let progressB: CGFloat
+        if processingB, processorBBatchTotalTime > 0 {
+            progressB = CGFloat(1.0 - (processorBTimeRemaining / processorBBatchTotalTime))
+        } else {
+            progressB = 0
+        }
+
+        let widthB = max(2, 138 * progressB)
+        processorBProgressFill.path = CGPath(
+            roundedRect: CGRect(x: -69, y: -4, width: widthB, height: 8),
             cornerWidth: 4,
             cornerHeight: 4,
             transform: nil
@@ -1126,7 +1385,7 @@ final class GamePlayScene: SKScene {
         }
     }
     private func updateHighlighting() {
-        let guidance = orchestrator.sessionState.guidanceState
+        let guidance = effectiveGuidanceState()
         let state = orchestrator.sessionState
         if let until = unlockFocusUntil, lastUpdateTime >= until {
             unlockFocusZoneID = nil
@@ -1155,12 +1414,29 @@ final class GamePlayScene: SKScene {
         ))
 
         let outputDistance = player.position.distance(to: processorOutputZoneNode.position)
-        let outputAvailable = state.processingQueue.processedReadyUnits > 0
+        let outputAvailable = processorAReadyUnits > 0
         candidates.append(InteractionCandidate(
             zoneID: processorZoneOutputID,
             kind: .processorOutput,
             distanceToPlayer: outputDistance,
             isWithinInteractionRadius: outputAvailable && outputDistance <= 50
+        ))
+
+        let inputDistanceB = player.position.distance(to: processorBInputZoneNode.position)
+        candidates.append(InteractionCandidate(
+            zoneID: processorBZoneInputID,
+            kind: .processorInput,
+            distanceToPlayer: inputDistanceB,
+            isWithinInteractionRadius: inputDistanceB <= 56
+        ))
+
+        let outputDistanceB = player.position.distance(to: processorBOutputZoneNode.position)
+        let outputAvailableB = processorBReadyUnits > 0
+        candidates.append(InteractionCandidate(
+            zoneID: processorBZoneOutputID,
+            kind: .processorOutput,
+            distanceToPlayer: outputDistanceB,
+            isWithinInteractionRadius: outputAvailableB && outputDistanceB <= 50
         ))
 
         let sellDistance = player.position.distance(to: sellZoneNode.position)
@@ -1186,6 +1462,21 @@ final class GamePlayScene: SKScene {
 
         let decision = PrimaryTargetResolver.resolve(candidates: candidates, guidance: guidance)
         var primaryID = decision.primaryZoneID
+        if primaryID == nil, guidance.target == .collectProcessedOutput {
+            let readyOutputs: [(Int, CGFloat)] = [
+                (processorZoneOutputID, processorAReadyUnits > 0 ? player.position.distance(to: processorOutputZoneNode.position) : .greatestFiniteMagnitude),
+                (processorBZoneOutputID, processorBReadyUnits > 0 ? player.position.distance(to: processorBOutputZoneNode.position) : .greatestFiniteMagnitude)
+            ]
+            primaryID = readyOutputs.min(by: { $0.1 < $1.1 })?.0
+            if let id = primaryID, readyOutputs.first(where: { $0.0 == id })?.1 == .greatestFiniteMagnitude {
+                primaryID = nil
+            }
+        }
+        if primaryID == nil, guidance.target == .goProcessorInput, state.carryAmount > 0 {
+            let distA = player.position.distance(to: processorInputZoneNode.position)
+            let distB = player.position.distance(to: processorBInputZoneNode.position)
+            primaryID = distB < distA ? processorBZoneInputID : processorZoneInputID
+        }
         if primaryID == nil,
            let focusZone = unlockFocusZoneID,
            guidance.target == .collectResource {
@@ -1223,24 +1514,44 @@ final class GamePlayScene: SKScene {
     private func refreshHUD() {
         let state = orchestrator.sessionState
         let capacity = max(1, orchestrator.effectiveCarryCapacity)
+        let guidance = effectiveGuidanceState()
 
         carryLabel.text = "Carry: \(state.carryAmount)/\(capacity)"
         coinsLabel.text = "Coins: \(state.coins)"
-        if let focusZone = unlockFocusZoneID, state.guidanceState.target == .collectResource {
+        if let focusZone = unlockFocusZoneID, guidance.target == .collectResource {
             guidanceLabel.text = "Collect resources in Zone \(focusZone)"
         } else {
-            guidanceLabel.text = GuidanceTextPresenter.text(for: state.guidanceState)
+            guidanceLabel.text = GuidanceTextPresenter.text(for: guidance)
         }
 
-        if state.processingQueue.processedReadyUnits > 0 {
-            processorStatusLabel.text = "Processor: ready (\(state.processingQueue.processedReadyUnits))"
-        } else if processingTimeRemaining > 0 {
-            processorStatusLabel.text = String(format: "Processor: processing (%.1fs)", processingTimeRemaining)
+        if processorAReadyUnits > 0 {
+            processorAStatusLabel.text = "Processor A: ready (\(processorAReadyUnits))"
+        } else if processorATimeRemaining > 0 {
+            processorAStatusLabel.text = String(format: "Processor A: processing (%.1fs)", processorATimeRemaining)
         } else {
-            processorStatusLabel.text = "Processor: idle"
+            processorAStatusLabel.text = "Processor A: idle"
+        }
+
+        if processorBReadyUnits > 0 {
+            processorBStatusLabel.text = "Processor B: ready (\(processorBReadyUnits))"
+        } else if processorBTimeRemaining > 0 {
+            processorBStatusLabel.text = String(format: "Processor B: processing (%.1fs)", processorBTimeRemaining)
+        } else {
+            processorBStatusLabel.text = "Processor B: idle"
         }
 
         updateUpgradePanelTexts()
+    }
+
+    private func effectiveGuidanceState() -> GuidanceState {
+        let state = orchestrator.sessionState
+        if processorAReadyUnits > 0 || processorBReadyUnits > 0 {
+            return GuidanceState(target: .collectProcessedOutput)
+        }
+        if state.carryAmount > 0 {
+            return GuidanceState(target: .goProcessorInput)
+        }
+        return state.guidanceState
     }
 
     private func flashZone(_ node: SKNode, color: UIColor) {
@@ -1442,10 +1753,13 @@ final class GamePlayScene: SKScene {
             tunedCameraFollowSmoothing
         )
 
-        let queue = orchestrator.sessionState.processingQueue
         let upgrades = orchestrator.sessionState.upgrades
         let unlocked = orchestrator.sessionState.unlockedZoneIDs.sorted().map(String.init).joined(separator: ",")
-        debugProcessorLabel.text = String(format: "Q:%d T:%.1f O:%d", queue.queuedRawUnits, processingTimeRemaining, queue.processedReadyUnits)
+        debugProcessorLabel.text = String(
+            format: "A Q:%d T:%.1f O:%d | B Q:%d T:%.1f O:%d",
+            processorAQueuedRawUnits, processorATimeRemaining, processorAReadyUnits,
+            processorBQueuedRawUnits, processorBTimeRemaining, processorBReadyUnits
+        )
         debugStateLabel.text = "Coins:\(orchestrator.sessionState.coins) ProcInv:\(orchestrator.sessionState.processedInventory) U:[\(unlocked)] L:\(upgrades.moveSpeed)/\(upgrades.carryCapacity)/\(upgrades.processingSpeed)"
 
         let elapsedSec = max(0, currentTime - (sessionMetrics.sessionStartTime ?? currentTime))

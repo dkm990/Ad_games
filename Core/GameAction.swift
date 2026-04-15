@@ -12,6 +12,7 @@ public enum GameAction {
     case processingCompleted
     case collectProcessedOutput(units: Int)
     case sellProcessed(units: Int)
+    case sellProcessedAtUnitPrice(units: Int, unitPrice: Int)
     case unlockZone(id: Int)
     case purchaseUpgrade(type: UpgradeType)
     case recalculateGuidance
