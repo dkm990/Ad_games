@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  swift-test:
+    name: Swift unit tests (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "5.10.1"
+      - name: Build
+        run: swift build
+      - name: Test
+        run: swift test --parallel
+
+  ios-build:
+    name: iOS build (xcodebuild)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show SDKs
+        run: xcodebuild -showsdks
+      - name: Build for iOS Simulator
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project AdGamesPrototype.xcodeproj \
+            -scheme AdGamesPrototype \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            build
