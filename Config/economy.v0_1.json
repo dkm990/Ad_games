@@ -1,4 +1,4 @@
-﻿{
+{
   "player": {
     "pickupRadius": 88,
     "playerAcceleration": 900,
@@ -33,6 +33,36 @@
       "basePrice": 35,
       "priceMultiplier": 1.65,
       "timeMultiplierPerLevel": 0.75
+    }
+  },
+  "meta": {
+    "prestigeMinCoins": 100,
+    "prestigeCoinsPerPoint": 25,
+    "upgrades": {
+      "startingCoins": {
+        "basePrice": 1,
+        "priceMultiplier": 1.5,
+        "effectPerLevel": 0,
+        "effectPerLevelInt": 10
+      },
+      "sellPriceMultiplier": {
+        "basePrice": 2,
+        "priceMultiplier": 1.6,
+        "effectPerLevel": 0.05,
+        "effectPerLevelInt": 0
+      },
+      "processorSpeed": {
+        "basePrice": 2,
+        "priceMultiplier": 1.6,
+        "effectPerLevel": 0.04,
+        "effectPerLevelInt": 0
+      },
+      "moveSpeedBonus": {
+        "basePrice": 1,
+        "priceMultiplier": 1.5,
+        "effectPerLevel": 0.03,
+        "effectPerLevelInt": 0
+      }
     }
   }
 }

@@ -25,6 +25,16 @@ final class GamePlayScene: SKScene {
     private var isUpgradesPanelVisible = false
     private var upgradeRowLabels: [UpgradeType: SKLabelNode] = [:]
 
+    private let metaToggleButton = SKShapeNode(rectOf: CGSize(width: 68, height: 26), cornerRadius: 6)
+    private let metaToggleLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+    private let metaPanelNode = SKShapeNode(rectOf: CGSize(width: 300, height: 220), cornerRadius: 10)
+    private let metaHeaderLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+    private let metaPointsLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+    private let metaPrestigeButton = SKShapeNode(rectOf: CGSize(width: 270, height: 28), cornerRadius: 6)
+    private let metaPrestigeLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+    private var isMetaPanelVisible = false
+    private var metaRowLabels: [MetaUpgradeType: SKLabelNode] = [:]
+
     private var resourceNodes: [Int: SKShapeNode] = [:]
     private var resourceRespawnTime: [Int: TimeInterval] = [:]
     private var interactionZoneNodes: [Int: SKShapeNode] = [:]
@@ -117,6 +127,7 @@ final class GamePlayScene: SKScene {
         var zonesUnlocked: Int = 0
         var coinsEarned: Int = 0
         var coinsSpent: Int = 0
+        var prestiges: Int = 0
     }
 
     private var sessionMetrics = SessionMetrics()
@@ -172,6 +183,7 @@ final class GamePlayScene: SKScene {
         buildUnlockGates()
         setupCameraAndHUD()
         setupUpgradesPanel()
+        setupMetaPanel()
         applyUnlockVisualStateFromSession()
         bootstrapProcessorRuntimeFromSession()
         updateProcessorBUnlockState(force: true)
@@ -198,13 +210,17 @@ final class GamePlayScene: SKScene {
             touchLocationInCamera = nil
             return
         }
+        if handleMetaUITap(at: cameraPoint) {
+            touchLocationInCamera = nil
+            return
+        }
 
         touchLocationInCamera = cameraPoint
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         guard let touch = touches.first else { return }
-        if isUpgradesPanelVisible {
+        if isUpgradesPanelVisible || isMetaPanelVisible {
             return
         }
         touchLocationInCamera = touch.location(in: cameraNode)
@@ -915,6 +931,20 @@ final class GamePlayScene: SKScene {
         upgradeToggleLabel.fontColor = .white
         upgradeToggleButton.addChild(upgradeToggleLabel)
 
+        metaToggleButton.name = "btn_meta_toggle"
+        metaToggleButton.fillColor = UIColor(red: 0.22, green: 0.18, blue: 0.3, alpha: 0.96)
+        metaToggleButton.strokeColor = UIColor(red: 0.95, green: 0.82, blue: 0.4, alpha: 1)
+        metaToggleButton.lineWidth = 1.2
+        metaToggleButton.position = CGPoint(x: size.width * 0.42, y: size.height * 0.36)
+
+        metaToggleLabel.name = "btn_meta_toggle"
+        metaToggleLabel.text = "META"
+        metaToggleLabel.fontName = "AvenirNext-Bold"
+        metaToggleLabel.fontSize = 12
+        metaToggleLabel.verticalAlignmentMode = .center
+        metaToggleLabel.fontColor = UIColor(red: 1.0, green: 0.92, blue: 0.6, alpha: 1)
+        metaToggleButton.addChild(metaToggleLabel)
+
         hudNode.zPosition = 1000
         hudNode.addChild(hudBackgroundNode)
         hudNode.addChild(carryLabel)
@@ -923,6 +953,7 @@ final class GamePlayScene: SKScene {
         hudNode.addChild(processorAStatusLabel)
         hudNode.addChild(processorBStatusLabel)
         hudNode.addChild(upgradeToggleButton)
+        hudNode.addChild(metaToggleButton)
         cameraNode.addChild(hudNode)
     }
 
@@ -1065,6 +1096,180 @@ final class GamePlayScene: SKScene {
             return Int((Double(config.upgrades.carryCapacity.basePrice) * pow(config.upgrades.carryCapacity.priceMultiplier, Double(level))).rounded(.toNearestOrAwayFromZero))
         case .processingSpeed:
             return Int((Double(config.upgrades.processingSpeed.basePrice) * pow(config.upgrades.processingSpeed.priceMultiplier, Double(level))).rounded(.toNearestOrAwayFromZero))
+        }
+    }
+
+    private func setupMetaPanel() {
+        metaPanelNode.name = "panel_meta"
+        metaPanelNode.fillColor = UIColor(red: 0.18, green: 0.14, blue: 0.22, alpha: 0.96)
+        metaPanelNode.strokeColor = UIColor(red: 0.95, green: 0.82, blue: 0.4, alpha: 1)
+        metaPanelNode.lineWidth = 1.5
+        metaPanelNode.position = CGPoint(x: -size.width * 0.22, y: size.height * 0.18)
+        metaPanelNode.zPosition = 1050
+        metaPanelNode.isHidden = true
+
+        metaHeaderLabel.text = "Permanent upgrades"
+        metaHeaderLabel.fontSize = 14
+        metaHeaderLabel.fontColor = UIColor(red: 1.0, green: 0.92, blue: 0.6, alpha: 1)
+        metaHeaderLabel.position = CGPoint(x: 0, y: 92)
+        metaHeaderLabel.zPosition = 1
+        metaPanelNode.addChild(metaHeaderLabel)
+
+        metaPointsLabel.fontSize = 12
+        metaPointsLabel.fontColor = .white
+        metaPointsLabel.position = CGPoint(x: 0, y: 72)
+        metaPointsLabel.zPosition = 1
+        metaPanelNode.addChild(metaPointsLabel)
+
+        metaPrestigeButton.name = "btn_meta_prestige"
+        metaPrestigeButton.position = CGPoint(x: 0, y: 44)
+        metaPrestigeButton.fillColor = UIColor(red: 0.32, green: 0.2, blue: 0.36, alpha: 0.98)
+        metaPrestigeButton.strokeColor = UIColor(red: 0.95, green: 0.82, blue: 0.4, alpha: 1)
+        metaPrestigeButton.lineWidth = 1
+        metaPanelNode.addChild(metaPrestigeButton)
+
+        metaPrestigeLabel.name = "btn_meta_prestige"
+        metaPrestigeLabel.verticalAlignmentMode = .center
+        metaPrestigeLabel.fontSize = 12
+        metaPrestigeLabel.fontColor = UIColor(red: 1.0, green: 0.92, blue: 0.6, alpha: 1)
+        metaPrestigeLabel.text = "Prestige"
+        metaPrestigeButton.addChild(metaPrestigeLabel)
+
+        addMetaRow(type: .startingCoins, y: 14, title: "Start coins")
+        addMetaRow(type: .sellPriceMultiplier, y: -14, title: "Sell price")
+        addMetaRow(type: .processorSpeed, y: -42, title: "Proc speed")
+        addMetaRow(type: .moveSpeedBonus, y: -70, title: "Move speed")
+
+        cameraNode.addChild(metaPanelNode)
+    }
+
+    private func addMetaRow(type: MetaUpgradeType, y: CGFloat, title: String) {
+        let button = SKShapeNode(rectOf: CGSize(width: 270, height: 24), cornerRadius: 6)
+        button.name = "btn_meta_\(type.rawValue)"
+        button.position = CGPoint(x: 0, y: y)
+        button.fillColor = UIColor(red: 0.24, green: 0.2, blue: 0.32, alpha: 0.95)
+        button.strokeColor = UIColor(red: 0.78, green: 0.62, blue: 0.95, alpha: 1)
+        button.lineWidth = 1
+
+        let label = SKLabelNode(fontNamed: "AvenirNext-Medium")
+        label.name = "btn_meta_\(type.rawValue)"
+        label.horizontalAlignmentMode = .left
+        label.verticalAlignmentMode = .center
+        label.position = CGPoint(x: -125, y: 0)
+        label.fontSize = 12
+        label.fontColor = .white
+        label.text = title
+        button.addChild(label)
+
+        let buyLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+        buyLabel.name = "btn_meta_\(type.rawValue)"
+        buyLabel.horizontalAlignmentMode = .right
+        buyLabel.verticalAlignmentMode = .center
+        buyLabel.position = CGPoint(x: 125, y: 0)
+        buyLabel.fontSize = 11
+        buyLabel.fontColor = UIColor(red: 1.0, green: 0.92, blue: 0.6, alpha: 1)
+        button.addChild(buyLabel)
+
+        metaRowLabels[type] = buyLabel
+        metaPanelNode.addChild(button)
+    }
+
+    private func handleMetaUITap(at point: CGPoint) -> Bool {
+        let nodesAtPoint = cameraNode.nodes(at: point)
+        guard let name = nodesAtPoint.compactMap({ $0.name }).first(where: { $0.hasPrefix("btn_meta_") }) else {
+            return false
+        }
+
+        if name == "btn_meta_toggle" {
+            isMetaPanelVisible.toggle()
+            metaPanelNode.isHidden = !isMetaPanelVisible
+            updateMetaPanelTexts()
+            return true
+        }
+
+        guard isMetaPanelVisible else { return false }
+
+        if name == "btn_meta_prestige" {
+            tryPrestige()
+            return true
+        }
+
+        for type in MetaUpgradeType.allCases where name == "btn_meta_\(type.rawValue)" {
+            tryPurchaseMetaUpgrade(type: type)
+            return true
+        }
+
+        return false
+    }
+
+    private func tryPrestige() {
+        let beforePoints = orchestrator.metaProgress.prestigePoints
+        let reward = orchestrator.currentPrestigeReward
+
+        orchestrator.perform(.prestige)
+
+        let afterPoints = orchestrator.metaProgress.prestigePoints
+        if afterPoints > beforePoints {
+            flashZone(metaPrestigeButton, color: UIColor(red: 0.95, green: 0.82, blue: 0.4, alpha: 0.85))
+            showFloatingText(text: "+\(reward) prestige", color: UIColor(red: 1.0, green: 0.92, blue: 0.6, alpha: 1), at: player.position)
+            sessionMetrics.prestiges += 1
+            refreshHUD()
+            updateUpgradePanelTexts()
+            refreshProcessorRuntimeAfterMetaChange()
+        } else {
+            flashZone(metaPrestigeButton, color: UIColor(red: 0.72, green: 0.26, blue: 0.26, alpha: 0.9))
+            showFloatingText(text: "Need more coins", color: UIColor(red: 1.0, green: 0.6, blue: 0.6, alpha: 1), at: player.position)
+        }
+        updateMetaPanelTexts()
+    }
+
+    private func tryPurchaseMetaUpgrade(type: MetaUpgradeType) {
+        let before = orchestrator.metaProgress.upgrades.level(for: type)
+
+        orchestrator.perform(.purchaseMetaUpgrade(type: type))
+
+        let after = orchestrator.metaProgress.upgrades.level(for: type)
+        if after > before {
+            flashZone(metaPanelNode, color: UIColor(red: 0.95, green: 0.82, blue: 0.4, alpha: 0.85))
+            showFloatingText(text: "\(type.rawValue) Lv \(after)", color: UIColor(red: 1.0, green: 0.92, blue: 0.6, alpha: 1), at: player.position)
+            refreshProcessorRuntimeAfterMetaChange()
+        } else {
+            flashZone(metaPanelNode, color: UIColor(red: 0.72, green: 0.26, blue: 0.26, alpha: 0.9))
+            showFloatingText(text: "Not enough prestige", color: UIColor(red: 1.0, green: 0.6, blue: 0.6, alpha: 1), at: player.position)
+        }
+        updateMetaPanelTexts()
+    }
+
+    private func updateMetaPanelTexts() {
+        let meta = orchestrator.metaProgress
+        let reward = orchestrator.currentPrestigeReward
+
+        metaPointsLabel.text = "Prestige: \(meta.prestigePoints)   Resets: \(meta.totalPrestiges)"
+        metaPrestigeLabel.text = reward > 0 ? "Prestige  +\(reward)" : "Prestige (need more coins)"
+        metaPrestigeButton.fillColor = reward > 0
+            ? UIColor(red: 0.32, green: 0.2, blue: 0.36, alpha: 0.98)
+            : UIColor(red: 0.22, green: 0.18, blue: 0.22, alpha: 0.95)
+
+        for type in MetaUpgradeType.allCases {
+            let level = meta.upgrades.level(for: type)
+            let price = orchestrator.metaUpgradePrice(for: type)
+            metaRowLabels[type]?.text = "Lv \(level)  \(price)p"
+        }
+    }
+
+    private func refreshProcessorRuntimeAfterMetaChange() {
+        // Meta upgrades can change effective processor time; reflect it in the current batch.
+        let newBase = orchestrator.effectiveProcessTimeSec
+        if processorABatchTotalTime > 0 {
+            let progress = max(0, min(1, 1 - processorATimeRemaining / processorABatchTotalTime))
+            processorABatchTotalTime = newBase
+            processorATimeRemaining = newBase * (1 - progress)
+        }
+        let newBaseB = newBase * processorBProcessTimeMultiplier
+        if processorBBatchTotalTime > 0 {
+            let progress = max(0, min(1, 1 - processorBTimeRemaining / processorBBatchTotalTime))
+            processorBBatchTotalTime = newBaseB
+            processorBTimeRemaining = newBaseB * (1 - progress)
         }
     }
 
@@ -1927,6 +2132,7 @@ final class GamePlayScene: SKScene {
         }
 
         updateUpgradePanelTexts()
+        updateMetaPanelTexts()
     }
 
     private func effectiveGuidanceState() -> GuidanceState {

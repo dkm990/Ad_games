@@ -1,11 +1,17 @@
-﻿import Foundation
+import Foundation
 
 public final class GameStateReducer {
     public private(set) var state: GameSessionState
+    public private(set) var meta: MetaProgress
     public let config: EconomyConfig
 
-    public init(initialState: GameSessionState = GameSessionState(), config: EconomyConfig) {
+    public init(
+        initialState: GameSessionState = GameSessionState(),
+        initialMeta: MetaProgress = MetaProgress(),
+        config: EconomyConfig
+    ) {
         self.state = initialState
+        self.meta = initialMeta
         self.config = config
         recalculateGuidanceState()
     }
@@ -37,12 +43,12 @@ public final class GameStateReducer {
         case let .sellProcessed(units):
             let sold = min(units, state.processedInventory)
             state.processedInventory -= sold
-            state.coins += sold * config.sell.processedUnitPrice
+            state.coins += adjustedEarnings(units: sold, unitPrice: config.sell.processedUnitPrice)
 
         case let .sellProcessedAtUnitPrice(units, unitPrice):
             let sold = min(units, state.processedInventory)
             state.processedInventory -= sold
-            state.coins += sold * max(0, unitPrice)
+            state.coins += adjustedEarnings(units: sold, unitPrice: max(0, unitPrice))
 
         case let .unlockZone(id):
             guard !state.unlockedZoneIDs.contains(id) else { break }
@@ -58,7 +64,7 @@ public final class GameStateReducer {
             break
 
         case .resetProgress:
-            state = GameSessionState()
+            state = freshSessionState()
 
         case .skipUnlockNextZone:
             if let nextLocked = config.zones
@@ -66,6 +72,21 @@ public final class GameStateReducer {
                 .first(where: { !state.unlockedZoneIDs.contains($0.id) }) {
                 state.unlockedZoneIDs.insert(nextLocked.id)
             }
+
+        case .prestige:
+            let reward = MetaProgressCalculator.prestigeReward(sessionCoins: state.coins, config: config.meta)
+            guard reward > 0 else { break }
+            meta.prestigePoints += reward
+            meta.totalPrestiges += 1
+            meta.lifetimeCoinsEarned += state.coins
+            state = freshSessionState()
+
+        case let .purchaseMetaUpgrade(type):
+            let level = meta.upgrades.level(for: type)
+            let price = MetaProgressCalculator.upgradePrice(type: type, level: level, config: config.meta)
+            guard meta.prestigePoints >= price else { break }
+            meta.prestigePoints -= price
+            meta.upgrades.increment(type)
         }
 
         recalculateGuidanceState()
@@ -73,7 +94,9 @@ public final class GameStateReducer {
     }
 
     public var effectiveMaxSpeed: Double {
-        config.player.playerMaxSpeed + (Double(state.upgrades.moveSpeed) * config.upgrades.moveSpeed.maxSpeedDeltaPerLevel)
+        let sessionBase = config.player.playerMaxSpeed + (Double(state.upgrades.moveSpeed) * config.upgrades.moveSpeed.maxSpeedDeltaPerLevel)
+        let metaMultiplier = MetaProgressCalculator.moveSpeedMultiplier(upgrades: meta.upgrades, config: config.meta)
+        return sessionBase * metaMultiplier
     }
 
     public var effectiveCarryCapacity: Int {
@@ -84,7 +107,34 @@ public final class GameStateReducer {
 
     public var effectiveProcessTimeSec: Double {
         let level = state.upgrades.processingSpeed
-        return config.processing.baseProcessTimeSec * pow(config.upgrades.processingSpeed.timeMultiplierPerLevel, Double(level))
+        let sessionFactor = pow(config.upgrades.processingSpeed.timeMultiplierPerLevel, Double(level))
+        let metaFactor = MetaProgressCalculator.processTimeMultiplier(upgrades: meta.upgrades, config: config.meta)
+        return config.processing.baseProcessTimeSec * sessionFactor * metaFactor
+    }
+
+    public var effectiveSellPriceMultiplier: Double {
+        MetaProgressCalculator.sellPriceMultiplier(upgrades: meta.upgrades, config: config.meta)
+    }
+
+    public var currentPrestigeReward: Int {
+        MetaProgressCalculator.prestigeReward(sessionCoins: state.coins, config: config.meta)
+    }
+
+    public func metaUpgradePrice(for type: MetaUpgradeType) -> Int {
+        let level = meta.upgrades.level(for: type)
+        return MetaProgressCalculator.upgradePrice(type: type, level: level, config: config.meta)
+    }
+
+    private func adjustedEarnings(units: Int, unitPrice: Int) -> Int {
+        guard units > 0, unitPrice > 0 else { return 0 }
+        let multiplier = effectiveSellPriceMultiplier
+        let raw = Double(units) * Double(unitPrice) * multiplier
+        return Int(raw.rounded(.toNearestOrAwayFromZero))
+    }
+
+    private func freshSessionState() -> GameSessionState {
+        let startingCoins = MetaProgressCalculator.startingCoins(upgrades: meta.upgrades, config: config.meta)
+        return GameSessionState(coins: startingCoins)
     }
 
     private func purchaseUpgrade(_ type: UpgradeType) {

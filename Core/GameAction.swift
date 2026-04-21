@@ -18,4 +18,6 @@ public enum GameAction {
     case recalculateGuidance
     case resetProgress
     case skipUnlockNextZone
+    case prestige
+    case purchaseMetaUpgrade(type: MetaUpgradeType)
 }
