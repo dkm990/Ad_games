@@ -38,6 +38,13 @@ final class GameStateReducerTests: XCTestCase {
                     processorSpeed: EconomyConfig.MetaUpgradeEntry(basePrice: 2, priceMultiplier: 1.6, effectPerLevel: 0.04, effectPerLevelInt: 0),
                     moveSpeedBonus: EconomyConfig.MetaUpgradeEntry(basePrice: 1, priceMultiplier: 1.5, effectPerLevel: 0.03, effectPerLevelInt: 0)
                 )
+            ),
+            premium: EconomyConfig.PremiumConfig(
+                inputPerBatch: 2,
+                outputPerBatch: 1,
+                baseProcessTimeSec: 2.4,
+                unitPrice: 28,
+                unlockPrice: 220
             )
         )
     }
@@ -269,5 +276,111 @@ final class GameStateReducerTests: XCTestCase {
         XCTAssertEqual(reducer.meta.dailyStreak, 2)
         // base (20) for day 1 + continued (30) for day 2
         XCTAssertEqual(reducer.state.coins, 50)
+    }
+
+    // MARK: - Premium chain (Processor C)
+
+    func test_unlockPremiumChain_insufficientCoins_isNoOp() {
+        let reducer = GameStateReducer(
+            initialState: GameSessionState(coins: 50),
+            config: makeConfig()
+        )
+        reducer.send(.unlockPremiumChain)
+        XCTAssertFalse(reducer.state.isPremiumChainUnlocked)
+        XCTAssertEqual(reducer.state.coins, 50)
+    }
+
+    func test_unlockPremiumChain_deductsCoinsAndSetsFlag() {
+        let reducer = GameStateReducer(
+            initialState: GameSessionState(coins: 300),
+            config: makeConfig()
+        )
+        reducer.send(.unlockPremiumChain)
+        XCTAssertTrue(reducer.state.isPremiumChainUnlocked)
+        XCTAssertEqual(reducer.state.coins, 300 - 220)
+        // Second call should be a no-op (already unlocked).
+        reducer.send(.unlockPremiumChain)
+        XCTAssertEqual(reducer.state.coins, 300 - 220)
+    }
+
+    func test_depositProcessedForPremium_requiresUnlock() {
+        let reducer = GameStateReducer(
+            initialState: GameSessionState(processedInventory: 4),
+            config: makeConfig()
+        )
+        reducer.send(.depositProcessedForPremium(units: 4))
+        // No-op: chain is locked.
+        XCTAssertEqual(reducer.state.processedInventory, 4)
+        XCTAssertEqual(reducer.state.premiumQueue.queuedRawUnits, 0)
+    }
+
+    func test_premiumChain_fullLoopProducesAndSellsPremium() {
+        let reducer = GameStateReducer(
+            initialState: GameSessionState(
+                processedInventory: 4,
+                coins: 250,
+                isPremiumChainUnlocked: true
+            ),
+            config: makeConfig()
+        )
+        let startCoins = reducer.state.coins
+        reducer.send(.depositProcessedForPremium(units: 4))
+        XCTAssertEqual(reducer.state.processedInventory, 0)
+        XCTAssertEqual(reducer.state.premiumQueue.queuedRawUnits, 4)
+
+        reducer.send(.premiumProcessingCompleted)
+        reducer.send(.premiumProcessingCompleted)
+        XCTAssertEqual(reducer.state.premiumQueue.queuedRawUnits, 0)
+        XCTAssertEqual(reducer.state.premiumQueue.processedReadyUnits, 2)
+
+        // Third completion is a no-op (nothing left to batch).
+        reducer.send(.premiumProcessingCompleted)
+        XCTAssertEqual(reducer.state.premiumQueue.processedReadyUnits, 2)
+
+        reducer.send(.collectPremiumOutput(units: 2))
+        XCTAssertEqual(reducer.state.premiumInventory, 2)
+
+        reducer.send(.sellPremium(units: 2))
+        XCTAssertEqual(reducer.state.premiumInventory, 0)
+        XCTAssertEqual(reducer.state.coins, startCoins + 2 * 28)
+    }
+
+    func test_sellPremium_respectsMetaSellMultiplier() {
+        var meta = MetaProgress()
+        meta.upgrades.sellPriceMultiplier = 4 // +20% on default effectPerLevel=0.05
+        let reducer = GameStateReducer(
+            initialState: GameSessionState(
+                premiumInventory: 5,
+                isPremiumChainUnlocked: true
+            ),
+            initialMeta: meta,
+            config: makeConfig()
+        )
+        reducer.send(.sellPremium(units: 5))
+        // 5 * 28 * 1.2 = 168
+        XCTAssertEqual(reducer.state.coins, 168)
+    }
+
+    func test_prestige_resetsPremiumChainState() {
+        let reducer = GameStateReducer(
+            initialState: GameSessionState(
+                processedInventory: 10,
+                coins: 2_500,
+                isPremiumChainUnlocked: true
+            ),
+            config: makeConfig()
+        )
+        // Inject some premium state so we can prove it's cleared.
+        reducer.send(.depositProcessedForPremium(units: 4))
+        reducer.send(.premiumProcessingCompleted)
+        reducer.send(.collectPremiumOutput(units: 1))
+        XCTAssertGreaterThan(reducer.state.premiumInventory, 0)
+
+        reducer.send(.prestige)
+        XCTAssertFalse(reducer.state.isPremiumChainUnlocked)
+        XCTAssertEqual(reducer.state.premiumInventory, 0)
+        XCTAssertEqual(reducer.state.premiumQueue.queuedRawUnits, 0)
+        XCTAssertEqual(reducer.state.premiumQueue.processedReadyUnits, 0)
+        XCTAssertGreaterThan(reducer.meta.prestigePoints, 0)
     }
 }

@@ -7,6 +7,36 @@ public struct EconomyConfig: Codable, Equatable {
     public var zones: [ZoneConfig]
     public var upgrades: UpgradeConfig
     public var meta: MetaConfig
+    public var premium: PremiumConfig
+
+    public init(
+        player: PlayerConfig,
+        processing: ProcessingConfig,
+        sell: SellConfig,
+        zones: [ZoneConfig],
+        upgrades: UpgradeConfig,
+        meta: MetaConfig,
+        premium: PremiumConfig = PremiumConfig()
+    ) {
+        self.player = player
+        self.processing = processing
+        self.sell = sell
+        self.zones = zones
+        self.upgrades = upgrades
+        self.meta = meta
+        self.premium = premium
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.player = try container.decode(PlayerConfig.self, forKey: .player)
+        self.processing = try container.decode(ProcessingConfig.self, forKey: .processing)
+        self.sell = try container.decode(SellConfig.self, forKey: .sell)
+        self.zones = try container.decode([ZoneConfig].self, forKey: .zones)
+        self.upgrades = try container.decode(UpgradeConfig.self, forKey: .upgrades)
+        self.meta = try container.decode(MetaConfig.self, forKey: .meta)
+        self.premium = try container.decodeIfPresent(PremiumConfig.self, forKey: .premium) ?? PremiumConfig()
+    }
 
     public struct PlayerConfig: Codable, Equatable {
         public var pickupRadius: Double
@@ -23,6 +53,31 @@ public struct EconomyConfig: Codable, Equatable {
 
     public struct SellConfig: Codable, Equatable {
         public var processedUnitPrice: Int
+    }
+
+    /// Configuration for the premium production chain (Processor C).
+    /// Input is `processedInventory`; output is `premiumInventory`, sold at
+    /// `unitPrice` coins. Unlock costs `unlockPrice` coins.
+    public struct PremiumConfig: Codable, Equatable {
+        public var inputPerBatch: Int
+        public var outputPerBatch: Int
+        public var baseProcessTimeSec: Double
+        public var unitPrice: Int
+        public var unlockPrice: Int
+
+        public init(
+            inputPerBatch: Int = 2,
+            outputPerBatch: Int = 1,
+            baseProcessTimeSec: Double = 2.4,
+            unitPrice: Int = 28,
+            unlockPrice: Int = 220
+        ) {
+            self.inputPerBatch = inputPerBatch
+            self.outputPerBatch = outputPerBatch
+            self.baseProcessTimeSec = baseProcessTimeSec
+            self.unitPrice = unitPrice
+            self.unlockPrice = unlockPrice
+        }
     }
 
     public struct ZoneConfig: Codable, Equatable {
