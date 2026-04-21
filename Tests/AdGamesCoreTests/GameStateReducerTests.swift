@@ -182,4 +182,40 @@ final class GameStateReducerTests: XCTestCase {
         reducer.send(.collectProcessedOutput(units: 1))
         XCTAssertEqual(reducer.state.guidanceState.target, .goSellZone)
     }
+
+    // MARK: - Offline earnings
+
+    func test_applyOfflineEarnings_addsCoinsAndTouchesLastSeen() {
+        let fixedNow = Date(timeIntervalSince1970: 42_000)
+        let reducer = GameStateReducer(
+            initialState: GameSessionState(coins: 50),
+            config: makeConfig(),
+            clock: { fixedNow }
+        )
+        reducer.send(.applyOfflineEarnings(coins: 25))
+        XCTAssertEqual(reducer.state.coins, 75)
+        XCTAssertEqual(reducer.meta.lastSeenAt, fixedNow)
+    }
+
+    func test_applyOfflineEarnings_withZeroCoins_isNoOp() {
+        let reducer = GameStateReducer(
+            initialState: GameSessionState(coins: 50),
+            config: makeConfig()
+        )
+        reducer.send(.applyOfflineEarnings(coins: 0))
+        XCTAssertEqual(reducer.state.coins, 50)
+    }
+
+    func test_lastSeenAt_isTouchedOnEveryDispatch() {
+        var clockValue = Date(timeIntervalSince1970: 1_000)
+        let reducer = GameStateReducer(
+            config: makeConfig(),
+            clock: { clockValue }
+        )
+        reducer.send(.collectRaw(units: 1))
+        XCTAssertEqual(reducer.meta.lastSeenAt, clockValue)
+        clockValue = Date(timeIntervalSince1970: 2_000)
+        reducer.send(.recalculateGuidance)
+        XCTAssertEqual(reducer.meta.lastSeenAt, clockValue)
+    }
 }

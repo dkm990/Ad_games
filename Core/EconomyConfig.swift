@@ -58,6 +58,27 @@ public struct EconomyConfig: Codable, Equatable {
         public var prestigeMinCoins: Int
         public var prestigeCoinsPerPoint: Int
         public var upgrades: MetaUpgradesConfig
+        public var offline: OfflineConfig
+
+        public init(
+            prestigeMinCoins: Int,
+            prestigeCoinsPerPoint: Int,
+            upgrades: MetaUpgradesConfig,
+            offline: OfflineConfig = OfflineConfig()
+        ) {
+            self.prestigeMinCoins = prestigeMinCoins
+            self.prestigeCoinsPerPoint = prestigeCoinsPerPoint
+            self.upgrades = upgrades
+            self.offline = offline
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.prestigeMinCoins = try container.decode(Int.self, forKey: .prestigeMinCoins)
+            self.prestigeCoinsPerPoint = try container.decode(Int.self, forKey: .prestigeCoinsPerPoint)
+            self.upgrades = try container.decode(MetaUpgradesConfig.self, forKey: .upgrades)
+            self.offline = try container.decodeIfPresent(OfflineConfig.self, forKey: .offline) ?? OfflineConfig()
+        }
 
         public func upgrade(for type: MetaUpgradeType) -> MetaUpgradeEntry {
             switch type {
@@ -66,6 +87,22 @@ public struct EconomyConfig: Codable, Equatable {
             case .processorSpeed: return upgrades.processorSpeed
             case .moveSpeedBonus: return upgrades.moveSpeedBonus
             }
+        }
+    }
+
+    public struct OfflineConfig: Codable, Equatable {
+        public var coinsPerSecond: Double
+        public var maxOfflineSeconds: Double
+        public var minAwardCoins: Int
+
+        public init(
+            coinsPerSecond: Double = 0.5,
+            maxOfflineSeconds: Double = 4 * 60 * 60,
+            minAwardCoins: Int = 1
+        ) {
+            self.coinsPerSecond = coinsPerSecond
+            self.maxOfflineSeconds = maxOfflineSeconds
+            self.minAwardCoins = minAwardCoins
         }
     }
 

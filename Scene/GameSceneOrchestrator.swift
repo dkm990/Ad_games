@@ -39,6 +39,10 @@ public final class GameSceneOrchestrator {
         stateSource.metaUpgradePrice(for: type)
     }
 
+    public func consumePendingOfflineReward() -> Int {
+        stateSource.consumePendingOfflineReward()
+    }
+
     // Scene should call this method on interactions and then update visuals/HUD from the returned state.
     @discardableResult
     public func perform(_ action: GameAction) -> GameSessionState {

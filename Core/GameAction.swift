@@ -20,4 +20,5 @@ public enum GameAction {
     case skipUnlockNextZone
     case prestige
     case purchaseMetaUpgrade(type: MetaUpgradeType)
+    case applyOfflineEarnings(coins: Int)
 }

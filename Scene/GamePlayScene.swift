@@ -35,6 +35,10 @@ final class GamePlayScene: SKScene {
     private var isMetaPanelVisible = false
     private var metaRowLabels: [MetaUpgradeType: SKLabelNode] = [:]
 
+    private let offlineBannerNode = SKShapeNode(rectOf: CGSize(width: 320, height: 68), cornerRadius: 10)
+    private let offlineBannerTitleLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+    private let offlineBannerRewardLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+
     private var resourceNodes: [Int: SKShapeNode] = [:]
     private var resourceRespawnTime: [Int: TimeInterval] = [:]
     private var interactionZoneNodes: [Int: SKShapeNode] = [:]
@@ -184,6 +188,7 @@ final class GamePlayScene: SKScene {
         setupCameraAndHUD()
         setupUpgradesPanel()
         setupMetaPanel()
+        setupOfflineBanner()
         applyUnlockVisualStateFromSession()
         bootstrapProcessorRuntimeFromSession()
         updateProcessorBUnlockState(force: true)
@@ -193,6 +198,7 @@ final class GamePlayScene: SKScene {
         #endif
 
         refreshHUD()
+        presentOfflineRewardIfAvailable()
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -1172,6 +1178,47 @@ final class GamePlayScene: SKScene {
 
         metaRowLabels[type] = buyLabel
         metaPanelNode.addChild(button)
+    }
+
+    private func setupOfflineBanner() {
+        offlineBannerNode.fillColor = UIColor(red: 0.10, green: 0.22, blue: 0.14, alpha: 0.96)
+        offlineBannerNode.strokeColor = UIColor(red: 0.36, green: 0.72, blue: 0.42, alpha: 1.0)
+        offlineBannerNode.lineWidth = 2
+        offlineBannerNode.position = CGPoint(x: 0, y: size.height * 0.32)
+        offlineBannerNode.zPosition = 1000
+        offlineBannerNode.isHidden = true
+        offlineBannerNode.alpha = 0
+
+        offlineBannerTitleLabel.text = "Welcome back"
+        offlineBannerTitleLabel.fontSize = 15
+        offlineBannerTitleLabel.fontColor = UIColor(white: 0.88, alpha: 1.0)
+        offlineBannerTitleLabel.horizontalAlignmentMode = .center
+        offlineBannerTitleLabel.verticalAlignmentMode = .center
+        offlineBannerTitleLabel.position = CGPoint(x: 0, y: 14)
+
+        offlineBannerRewardLabel.text = ""
+        offlineBannerRewardLabel.fontSize = 20
+        offlineBannerRewardLabel.fontColor = UIColor(red: 1.0, green: 0.93, blue: 0.58, alpha: 1.0)
+        offlineBannerRewardLabel.horizontalAlignmentMode = .center
+        offlineBannerRewardLabel.verticalAlignmentMode = .center
+        offlineBannerRewardLabel.position = CGPoint(x: 0, y: -10)
+
+        offlineBannerNode.addChild(offlineBannerTitleLabel)
+        offlineBannerNode.addChild(offlineBannerRewardLabel)
+        cameraNode.addChild(offlineBannerNode)
+    }
+
+    private func presentOfflineRewardIfAvailable() {
+        let reward = orchestrator.consumePendingOfflineReward()
+        guard reward > 0 else { return }
+        offlineBannerRewardLabel.text = "+\(reward) coins while away"
+        offlineBannerNode.isHidden = false
+        offlineBannerNode.removeAllActions()
+        let fadeIn = SKAction.fadeAlpha(to: 1.0, duration: 0.25)
+        let hold = SKAction.wait(forDuration: 3.0)
+        let fadeOut = SKAction.fadeAlpha(to: 0.0, duration: 0.4)
+        let hide = SKAction.run { [weak self] in self?.offlineBannerNode.isHidden = true }
+        offlineBannerNode.run(SKAction.sequence([fadeIn, hold, fadeOut, hide]))
     }
 
     private func handleMetaUITap(at point: CGPoint) -> Bool {

@@ -63,6 +63,11 @@
         "effectPerLevel": 0.03,
         "effectPerLevelInt": 0
       }
+    },
+    "offline": {
+      "coinsPerSecond": 0.5,
+      "maxOfflineSeconds": 14400,
+      "minAwardCoins": 1
     }
   }
 }

@@ -4,22 +4,40 @@ public final class GameSessionStore: GameSessionStateSource {
     private let reducer: GameStateReducer
     private let progressStore: LocalProgressStore
     private let metaStore: LocalMetaStore
+    private var pendingOfflineReward: Int
 
     public init(
         config: EconomyConfig,
         progressStore: LocalProgressStore,
-        metaStore: LocalMetaStore
+        metaStore: LocalMetaStore,
+        clock: @escaping () -> Date = Date.init
     ) {
         self.progressStore = progressStore
         self.metaStore = metaStore
 
         let restoredMeta = metaStore.loadMeta() ?? MetaProgress()
         let restoredState = progressStore.loadState()
-        self.reducer = GameStateReducer(
+        let reducer = GameStateReducer(
             initialState: restoredState ?? GameSessionStore.freshState(meta: restoredMeta, config: config),
             initialMeta: restoredMeta,
-            config: config
+            config: config,
+            clock: clock
         )
+        self.reducer = reducer
+
+        let offlineReward = MetaProgressCalculator.offlineCoins(
+            lastSeenAt: restoredMeta.lastSeenAt,
+            now: clock(),
+            upgrades: restoredMeta.upgrades,
+            config: config.meta
+        )
+
+        if offlineReward > 0 {
+            _ = reducer.send(.applyOfflineEarnings(coins: offlineReward))
+            progressStore.saveState(reducer.state)
+            metaStore.saveMeta(reducer.meta)
+        }
+        self.pendingOfflineReward = offlineReward
     }
 
     public var sessionState: GameSessionState {
@@ -52,6 +70,12 @@ public final class GameSessionStore: GameSessionStateSource {
 
     public func metaUpgradePrice(for type: MetaUpgradeType) -> Int {
         reducer.metaUpgradePrice(for: type)
+    }
+
+    public func consumePendingOfflineReward() -> Int {
+        let reward = pendingOfflineReward
+        pendingOfflineReward = 0
+        return reward
     }
 
     @discardableResult
