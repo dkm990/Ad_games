@@ -74,5 +74,12 @@
       "bonusPerDay": 10,
       "maxStreakDays": 7
     }
+  },
+  "premium": {
+    "inputPerBatch": 2,
+    "outputPerBatch": 1,
+    "baseProcessTimeSec": 2.4,
+    "unitPrice": 28,
+    "unlockPrice": 220
   }
 }

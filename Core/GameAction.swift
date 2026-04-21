@@ -22,4 +22,9 @@ public enum GameAction {
     case purchaseMetaUpgrade(type: MetaUpgradeType)
     case applyOfflineEarnings(coins: Int)
     case checkInDaily
+    case depositProcessedForPremium(units: Int)
+    case premiumProcessingCompleted
+    case collectPremiumOutput(units: Int)
+    case sellPremium(units: Int)
+    case unlockPremiumChain
 }

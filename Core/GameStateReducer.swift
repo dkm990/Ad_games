@@ -102,6 +102,34 @@ public final class GameStateReducer {
             guard coins > 0 else { break }
             state.coins += coins
 
+        case let .depositProcessedForPremium(units):
+            guard state.isPremiumChainUnlocked else { break }
+            let deposited = min(units, state.processedInventory)
+            state.processedInventory -= deposited
+            state.premiumQueue.queuedRawUnits += deposited
+
+        case .premiumProcessingCompleted:
+            guard state.premiumQueue.queuedRawUnits >= config.premium.inputPerBatch else { break }
+            state.premiumQueue.queuedRawUnits -= config.premium.inputPerBatch
+            state.premiumQueue.processedReadyUnits += config.premium.outputPerBatch
+
+        case let .collectPremiumOutput(units):
+            let taken = min(units, state.premiumQueue.processedReadyUnits)
+            state.premiumQueue.processedReadyUnits -= taken
+            state.premiumInventory += taken
+
+        case let .sellPremium(units):
+            let sold = min(units, state.premiumInventory)
+            state.premiumInventory -= sold
+            state.coins += adjustedEarnings(units: sold, unitPrice: config.premium.unitPrice)
+
+        case .unlockPremiumChain:
+            guard !state.isPremiumChainUnlocked else { break }
+            let price = config.premium.unlockPrice
+            guard state.coins >= price else { break }
+            state.coins -= price
+            state.isPremiumChainUnlocked = true
+
         case .checkInDaily:
             let now = clock()
             let outcome = DailyStreakEvaluator.evaluate(

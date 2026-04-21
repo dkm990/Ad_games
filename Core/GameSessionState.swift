@@ -52,6 +52,17 @@ public struct GameSessionState: Codable, Equatable {
     public var upgrades: UpgradeLevels
     public var processingQueue: ProcessingQueueState
     public var guidanceState: GuidanceState
+    /// Premium goods waiting to be sold. Produced by feeding processed
+    /// output into Processor C (the premium chain, see ``PremiumConfig``).
+    public var premiumInventory: Int
+    /// Premium chain queue. `queuedRawUnits` here means "processed units
+    /// deposited into Processor C". `processedReadyUnits` means "premium
+    /// goods ready to collect". Reuses the existing struct to keep save
+    /// shape and render code simple.
+    public var premiumQueue: ProcessingQueueState
+    /// Whether the premium chain (Processor C) has been paid for and
+    /// unlocked in this session. Resets on prestige.
+    public var isPremiumChainUnlocked: Bool
 
     public init(
         carryAmount: Int = 0,
@@ -60,7 +71,10 @@ public struct GameSessionState: Codable, Equatable {
         unlockedZoneIDs: Set<Int> = [1],
         upgrades: UpgradeLevels = UpgradeLevels(),
         processingQueue: ProcessingQueueState = ProcessingQueueState(),
-        guidanceState: GuidanceState = GuidanceState(target: .collectResource)
+        guidanceState: GuidanceState = GuidanceState(target: .collectResource),
+        premiumInventory: Int = 0,
+        premiumQueue: ProcessingQueueState = ProcessingQueueState(),
+        isPremiumChainUnlocked: Bool = false
     ) {
         self.carryAmount = carryAmount
         self.processedInventory = processedInventory
@@ -69,5 +83,22 @@ public struct GameSessionState: Codable, Equatable {
         self.upgrades = upgrades
         self.processingQueue = processingQueue
         self.guidanceState = guidanceState
+        self.premiumInventory = premiumInventory
+        self.premiumQueue = premiumQueue
+        self.isPremiumChainUnlocked = isPremiumChainUnlocked
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.carryAmount = try container.decode(Int.self, forKey: .carryAmount)
+        self.processedInventory = try container.decode(Int.self, forKey: .processedInventory)
+        self.coins = try container.decode(Int.self, forKey: .coins)
+        self.unlockedZoneIDs = try container.decode(Set<Int>.self, forKey: .unlockedZoneIDs)
+        self.upgrades = try container.decode(UpgradeLevels.self, forKey: .upgrades)
+        self.processingQueue = try container.decode(ProcessingQueueState.self, forKey: .processingQueue)
+        self.guidanceState = try container.decode(GuidanceState.self, forKey: .guidanceState)
+        self.premiumInventory = try container.decodeIfPresent(Int.self, forKey: .premiumInventory) ?? 0
+        self.premiumQueue = try container.decodeIfPresent(ProcessingQueueState.self, forKey: .premiumQueue) ?? ProcessingQueueState()
+        self.isPremiumChainUnlocked = try container.decodeIfPresent(Bool.self, forKey: .isPremiumChainUnlocked) ?? false
     }
 }
