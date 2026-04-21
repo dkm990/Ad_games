@@ -5,17 +5,24 @@ public final class GameStateReducer {
     public private(set) var meta: MetaProgress
     public let config: EconomyConfig
     private let clock: () -> Date
+    private let calendar: Calendar
+    /// Outcome of the most recent `.checkInDaily` dispatch (nil until the
+    /// first check-in). Upstream code reads this to decide whether to show a
+    /// streak banner on launch.
+    public private(set) var lastStreakOutcome: DailyStreakOutcome?
 
     public init(
         initialState: GameSessionState = GameSessionState(),
         initialMeta: MetaProgress = MetaProgress(),
         config: EconomyConfig,
-        clock: @escaping () -> Date = Date.init
+        clock: @escaping () -> Date = Date.init,
+        calendar: Calendar = .current
     ) {
         self.state = initialState
         self.meta = initialMeta
         self.config = config
         self.clock = clock
+        self.calendar = calendar
         recalculateGuidanceState()
     }
 
@@ -94,6 +101,27 @@ public final class GameStateReducer {
         case let .applyOfflineEarnings(coins):
             guard coins > 0 else { break }
             state.coins += coins
+
+        case .checkInDaily:
+            let now = clock()
+            let outcome = DailyStreakEvaluator.evaluate(
+                lastCheckInDay: meta.lastCheckInDay,
+                previousStreak: meta.dailyStreak,
+                now: now,
+                calendar: calendar,
+                config: config.meta
+            )
+            lastStreakOutcome = outcome
+            switch outcome.transition {
+            case .alreadyClaimed:
+                break
+            case .started, .continued, .reset:
+                meta.dailyStreak = outcome.newStreak
+                meta.lastCheckInDay = calendar.startOfDay(for: now)
+                if outcome.bonusCoins > 0 {
+                    state.coins += outcome.bonusCoins
+                }
+            }
         }
 
         meta.lastSeenAt = clock()

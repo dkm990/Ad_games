@@ -16,6 +16,11 @@ public protocol GameSessionStateSource: AnyObject {
     /// same banner.
     func consumePendingOfflineReward() -> Int
 
+    /// Returns the daily-streak transition recorded during the launch
+    /// check-in, once. Returns `nil` if the user already checked in today
+    /// or if the outcome has already been consumed.
+    func consumePendingStreakOutcome() -> DailyStreakOutcome?
+
     @discardableResult
     func dispatch(_ action: GameAction) -> GameSessionState
 }

@@ -68,6 +68,11 @@
       "coinsPerSecond": 0.5,
       "maxOfflineSeconds": 14400,
       "minAwardCoins": 1
+    },
+    "streak": {
+      "baseBonusCoins": 20,
+      "bonusPerDay": 10,
+      "maxStreakDays": 7
     }
   }
 }

@@ -43,6 +43,10 @@ public final class GameSceneOrchestrator {
         stateSource.consumePendingOfflineReward()
     }
 
+    public func consumePendingStreakOutcome() -> DailyStreakOutcome? {
+        stateSource.consumePendingStreakOutcome()
+    }
+
     // Scene should call this method on interactions and then update visuals/HUD from the returned state.
     @discardableResult
     public func perform(_ action: GameAction) -> GameSessionState {

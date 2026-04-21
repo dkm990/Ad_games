@@ -59,17 +59,20 @@ public struct EconomyConfig: Codable, Equatable {
         public var prestigeCoinsPerPoint: Int
         public var upgrades: MetaUpgradesConfig
         public var offline: OfflineConfig
+        public var streak: StreakConfig
 
         public init(
             prestigeMinCoins: Int,
             prestigeCoinsPerPoint: Int,
             upgrades: MetaUpgradesConfig,
-            offline: OfflineConfig = OfflineConfig()
+            offline: OfflineConfig = OfflineConfig(),
+            streak: StreakConfig = StreakConfig()
         ) {
             self.prestigeMinCoins = prestigeMinCoins
             self.prestigeCoinsPerPoint = prestigeCoinsPerPoint
             self.upgrades = upgrades
             self.offline = offline
+            self.streak = streak
         }
 
         public init(from decoder: Decoder) throws {
@@ -78,6 +81,7 @@ public struct EconomyConfig: Codable, Equatable {
             self.prestigeCoinsPerPoint = try container.decode(Int.self, forKey: .prestigeCoinsPerPoint)
             self.upgrades = try container.decode(MetaUpgradesConfig.self, forKey: .upgrades)
             self.offline = try container.decodeIfPresent(OfflineConfig.self, forKey: .offline) ?? OfflineConfig()
+            self.streak = try container.decodeIfPresent(StreakConfig.self, forKey: .streak) ?? StreakConfig()
         }
 
         public func upgrade(for type: MetaUpgradeType) -> MetaUpgradeEntry {
@@ -103,6 +107,25 @@ public struct EconomyConfig: Codable, Equatable {
             self.coinsPerSecond = coinsPerSecond
             self.maxOfflineSeconds = maxOfflineSeconds
             self.minAwardCoins = minAwardCoins
+        }
+    }
+
+    public struct StreakConfig: Codable, Equatable {
+        /// Flat coin reward on day 1 of a streak.
+        public var baseBonusCoins: Int
+        /// Additional coins added per consecutive day (capped by ``maxStreakDays``).
+        public var bonusPerDay: Int
+        /// Cap on how many streak days contribute to the bonus payout.
+        public var maxStreakDays: Int
+
+        public init(
+            baseBonusCoins: Int = 20,
+            bonusPerDay: Int = 10,
+            maxStreakDays: Int = 7
+        ) {
+            self.baseBonusCoins = baseBonusCoins
+            self.bonusPerDay = bonusPerDay
+            self.maxStreakDays = maxStreakDays
         }
     }
 

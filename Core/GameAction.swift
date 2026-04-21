@@ -21,4 +21,5 @@ public enum GameAction {
     case prestige
     case purchaseMetaUpgrade(type: MetaUpgradeType)
     case applyOfflineEarnings(coins: Int)
+    case checkInDaily
 }

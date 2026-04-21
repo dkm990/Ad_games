@@ -53,19 +53,30 @@ public struct MetaProgress: Codable, Equatable {
     /// offline earnings on the next launch. `nil` for fresh installs, which
     /// suppresses the offline reward until the first session checkpoints.
     public var lastSeenAt: Date?
+    /// Current daily-login streak length (0 for fresh installs; 1 on first
+    /// check-in; grows by 1 on each consecutive calendar day).
+    public var dailyStreak: Int
+    /// Start-of-day for the most recent successful check-in. `nil` until the
+    /// first check-in. Compared against the current day to decide whether
+    /// today's check-in extends, resets, or is a no-op.
+    public var lastCheckInDay: Date?
 
     public init(
         prestigePoints: Int = 0,
         upgrades: MetaUpgradeLevels = MetaUpgradeLevels(),
         totalPrestiges: Int = 0,
         lifetimeCoinsEarned: Int = 0,
-        lastSeenAt: Date? = nil
+        lastSeenAt: Date? = nil,
+        dailyStreak: Int = 0,
+        lastCheckInDay: Date? = nil
     ) {
         self.prestigePoints = prestigePoints
         self.upgrades = upgrades
         self.totalPrestiges = totalPrestiges
         self.lifetimeCoinsEarned = lifetimeCoinsEarned
         self.lastSeenAt = lastSeenAt
+        self.dailyStreak = dailyStreak
+        self.lastCheckInDay = lastCheckInDay
     }
 
     public init(from decoder: Decoder) throws {
@@ -75,6 +86,8 @@ public struct MetaProgress: Codable, Equatable {
         self.totalPrestiges = try container.decodeIfPresent(Int.self, forKey: .totalPrestiges) ?? 0
         self.lifetimeCoinsEarned = try container.decodeIfPresent(Int.self, forKey: .lifetimeCoinsEarned) ?? 0
         self.lastSeenAt = try container.decodeIfPresent(Date.self, forKey: .lastSeenAt)
+        self.dailyStreak = try container.decodeIfPresent(Int.self, forKey: .dailyStreak) ?? 0
+        self.lastCheckInDay = try container.decodeIfPresent(Date.self, forKey: .lastCheckInDay)
     }
 }
 
@@ -151,5 +164,66 @@ public enum MetaProgressCalculator {
         let raw = clamped * config.offline.coinsPerSecond * processorBoost * sellBoost
         let award = Int(raw.rounded(.down))
         return award >= config.offline.minAwardCoins ? award : 0
+    }
+
+    /// Coin bonus for the current login streak. Caps the streak at
+    /// `maxStreakDays` so the payout is bounded.
+    public static func streakBonusCoins(
+        streak: Int,
+        config: EconomyConfig.MetaConfig
+    ) -> Int {
+        guard streak > 0 else { return 0 }
+        let effective = min(streak, max(1, config.streak.maxStreakDays))
+        return config.streak.baseBonusCoins + config.streak.bonusPerDay * (effective - 1)
+    }
+}
+
+/// Outcome of a daily check-in attempt.
+public struct DailyStreakOutcome: Equatable {
+    public enum Transition: Equatable {
+        /// First check-in ever; streak becomes 1.
+        case started
+        /// Check-in on the calendar day immediately following `lastCheckInDay`.
+        case continued
+        /// Gap of 2+ days or the device clock ran backwards; streak resets to 1.
+        case reset
+        /// Same calendar day as `lastCheckInDay`; no state change, no reward.
+        case alreadyClaimed
+    }
+
+    public var transition: Transition
+    public var newStreak: Int
+    public var bonusCoins: Int
+}
+
+public enum DailyStreakEvaluator {
+    /// Pure function that maps (lastCheckInDay, previousStreak, now) to the
+    /// next streak state and its coin reward. Kept independent of the reducer
+    /// so it can be covered by focused unit tests.
+    public static func evaluate(
+        lastCheckInDay: Date?,
+        previousStreak: Int,
+        now: Date,
+        calendar: Calendar,
+        config: EconomyConfig.MetaConfig
+    ) -> DailyStreakOutcome {
+        let today = calendar.startOfDay(for: now)
+        guard let last = lastCheckInDay else {
+            let bonus = MetaProgressCalculator.streakBonusCoins(streak: 1, config: config)
+            return DailyStreakOutcome(transition: .started, newStreak: 1, bonusCoins: bonus)
+        }
+        let lastDay = calendar.startOfDay(for: last)
+        let daysBetween = calendar.dateComponents([.day], from: lastDay, to: today).day ?? 0
+        if daysBetween == 0 {
+            return DailyStreakOutcome(transition: .alreadyClaimed, newStreak: max(previousStreak, 1), bonusCoins: 0)
+        }
+        if daysBetween == 1 {
+            let streak = max(1, previousStreak) + 1
+            let bonus = MetaProgressCalculator.streakBonusCoins(streak: streak, config: config)
+            return DailyStreakOutcome(transition: .continued, newStreak: streak, bonusCoins: bonus)
+        }
+        // Gap of 2+ days OR clock rewind (daysBetween < 0).
+        let bonus = MetaProgressCalculator.streakBonusCoins(streak: 1, config: config)
+        return DailyStreakOutcome(transition: .reset, newStreak: 1, bonusCoins: bonus)
     }
 }
