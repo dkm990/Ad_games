@@ -28,6 +28,8 @@
 		A10000000000000000000013 /* economy.v0_1.json in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000014 /* economy.v0_1.json */; };
 		A10000000000000000000014 /* SpriteKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000015 /* SpriteKit.framework */; };
 		A10000000000000000000015 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000016 /* UIKit.framework */; };
+		A10000000000000000000016 /* MetaProgress.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* MetaProgress.swift */; };
+		A10000000000000000000017 /* LocalMetaStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* LocalMetaStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -54,6 +56,8 @@
 		A20000000000000000000015 /* SpriteKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SpriteKit.framework; path = System/Library/Frameworks/SpriteKit.framework; sourceTree = SDKROOT; };
 		A20000000000000000000016 /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		A20000000000000000000017 /* AdGamesPrototype.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AdGamesPrototype.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000018 /* MetaProgress.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MetaProgress.swift; sourceTree = "<group>"; };
+		A20000000000000000000019 /* LocalMetaStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalMetaStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -129,6 +133,7 @@
 				A20000000000000000000009 /* GameSessionStateSource.swift */,
 				A20000000000000000000007 /* GameSessionStore.swift */,
 				A20000000000000000000008 /* GameStateReducer.swift */,
+				A20000000000000000000018 /* MetaProgress.swift */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -158,6 +163,7 @@
 			children = (
 				A20000000000000000000010 /* LocalEventLogger.swift */,
 				A20000000000000000000011 /* LocalProgressStore.swift */,
+				A20000000000000000000019 /* LocalMetaStore.swift */,
 			);
 			path = Services;
 			sourceTree = "<group>";
@@ -257,6 +263,8 @@
 				A1000000000000000000000F /* DebugPanelModel.swift in Sources */,
 				A10000000000000000000010 /* LocalEventLogger.swift in Sources */,
 				A10000000000000000000011 /* LocalProgressStore.swift in Sources */,
+				A10000000000000000000016 /* MetaProgress.swift in Sources */,
+				A10000000000000000000017 /* LocalMetaStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
