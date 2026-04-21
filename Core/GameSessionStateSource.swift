@@ -11,6 +11,11 @@ public protocol GameSessionStateSource: AnyObject {
 
     func metaUpgradePrice(for type: MetaUpgradeType) -> Int
 
+    /// Returns the pending offline-earnings reward queued at launch and
+    /// clears it so subsequent scene transitions don't re-present the
+    /// same banner.
+    func consumePendingOfflineReward() -> Int
+
     @discardableResult
     func dispatch(_ action: GameAction) -> GameSessionState
 }

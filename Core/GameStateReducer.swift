@@ -4,15 +4,18 @@ public final class GameStateReducer {
     public private(set) var state: GameSessionState
     public private(set) var meta: MetaProgress
     public let config: EconomyConfig
+    private let clock: () -> Date
 
     public init(
         initialState: GameSessionState = GameSessionState(),
         initialMeta: MetaProgress = MetaProgress(),
-        config: EconomyConfig
+        config: EconomyConfig,
+        clock: @escaping () -> Date = Date.init
     ) {
         self.state = initialState
         self.meta = initialMeta
         self.config = config
+        self.clock = clock
         recalculateGuidanceState()
     }
 
@@ -87,8 +90,13 @@ public final class GameStateReducer {
             guard meta.prestigePoints >= price else { break }
             meta.prestigePoints -= price
             meta.upgrades.increment(type)
+
+        case let .applyOfflineEarnings(coins):
+            guard coins > 0 else { break }
+            state.coins += coins
         }
 
+        meta.lastSeenAt = clock()
         recalculateGuidanceState()
         return state
     }

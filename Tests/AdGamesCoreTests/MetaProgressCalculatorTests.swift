@@ -72,4 +72,105 @@ final class MetaProgressCalculatorTests: XCTestCase {
         upgrades.moveSpeedBonus = 10
         XCTAssertEqual(MetaProgressCalculator.moveSpeedMultiplier(upgrades: upgrades, config: metaConfig), 1.3, accuracy: 1e-9)
     }
+
+    // MARK: - Offline earnings
+
+    private var offlineMetaConfig: EconomyConfig.MetaConfig {
+        EconomyConfig.MetaConfig(
+            prestigeMinCoins: 100,
+            prestigeCoinsPerPoint: 25,
+            upgrades: metaConfig.upgrades,
+            offline: EconomyConfig.OfflineConfig(
+                coinsPerSecond: 1.0,
+                maxOfflineSeconds: 600,
+                minAwardCoins: 1
+            )
+        )
+    }
+
+    func test_offlineCoins_returnsZero_whenLastSeenIsNil() {
+        let reward = MetaProgressCalculator.offlineCoins(
+            lastSeenAt: nil,
+            now: Date(timeIntervalSince1970: 1_000),
+            upgrades: MetaUpgradeLevels(),
+            config: offlineMetaConfig
+        )
+        XCTAssertEqual(reward, 0)
+    }
+
+    func test_offlineCoins_returnsZero_whenClockRanBackwards() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let future = Date(timeIntervalSince1970: 2_000)
+        let reward = MetaProgressCalculator.offlineCoins(
+            lastSeenAt: future,
+            now: now,
+            upgrades: MetaUpgradeLevels(),
+            config: offlineMetaConfig
+        )
+        XCTAssertEqual(reward, 0)
+    }
+
+    func test_offlineCoins_scalesLinearlyWithElapsedTime() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let last = now.addingTimeInterval(-30) // 30 seconds
+        let reward = MetaProgressCalculator.offlineCoins(
+            lastSeenAt: last,
+            now: now,
+            upgrades: MetaUpgradeLevels(),
+            config: offlineMetaConfig
+        )
+        // 30s * 1 coin/s * 1.0 processor boost * 1.0 sell boost = 30
+        XCTAssertEqual(reward, 30)
+    }
+
+    func test_offlineCoins_capsAtMaxOfflineSeconds() {
+        let now = Date(timeIntervalSince1970: 10_000)
+        let last = now.addingTimeInterval(-24 * 3600) // 24 hours
+        let reward = MetaProgressCalculator.offlineCoins(
+            lastSeenAt: last,
+            now: now,
+            upgrades: MetaUpgradeLevels(),
+            config: offlineMetaConfig
+        )
+        // cap = 600s * 1 * 1 * 1 = 600
+        XCTAssertEqual(reward, 600)
+    }
+
+    func test_offlineCoins_appliesProcessorAndSellBoosts() {
+        var upgrades = MetaUpgradeLevels()
+        upgrades.processorSpeed = 5 // +0.04 * 5 = 1.20x
+        upgrades.sellPriceMultiplier = 4 // +0.05 * 4 = 1.20x
+        let now = Date(timeIntervalSince1970: 10_000)
+        let last = now.addingTimeInterval(-100)
+        let reward = MetaProgressCalculator.offlineCoins(
+            lastSeenAt: last,
+            now: now,
+            upgrades: upgrades,
+            config: offlineMetaConfig
+        )
+        // 100 * 1 * 1.2 * 1.2 = 144
+        XCTAssertEqual(reward, 144)
+    }
+
+    func test_offlineCoins_floorsBelowMinAwardCoins() {
+        let sparseConfig = EconomyConfig.MetaConfig(
+            prestigeMinCoins: 100,
+            prestigeCoinsPerPoint: 25,
+            upgrades: metaConfig.upgrades,
+            offline: EconomyConfig.OfflineConfig(
+                coinsPerSecond: 0.01,
+                maxOfflineSeconds: 600,
+                minAwardCoins: 5
+            )
+        )
+        let now = Date(timeIntervalSince1970: 10_000)
+        // 10 seconds * 0.01 = 0.1 coins, below minAwardCoins=5 → 0
+        let reward = MetaProgressCalculator.offlineCoins(
+            lastSeenAt: now.addingTimeInterval(-10),
+            now: now,
+            upgrades: MetaUpgradeLevels(),
+            config: sparseConfig
+        )
+        XCTAssertEqual(reward, 0)
+    }
 }

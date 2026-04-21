@@ -49,17 +49,32 @@ public struct MetaProgress: Codable, Equatable {
     public var upgrades: MetaUpgradeLevels
     public var totalPrestiges: Int
     public var lifetimeCoinsEarned: Int
+    /// Wall-clock timestamp of the last dispatched action. Used to compute
+    /// offline earnings on the next launch. `nil` for fresh installs, which
+    /// suppresses the offline reward until the first session checkpoints.
+    public var lastSeenAt: Date?
 
     public init(
         prestigePoints: Int = 0,
         upgrades: MetaUpgradeLevels = MetaUpgradeLevels(),
         totalPrestiges: Int = 0,
-        lifetimeCoinsEarned: Int = 0
+        lifetimeCoinsEarned: Int = 0,
+        lastSeenAt: Date? = nil
     ) {
         self.prestigePoints = prestigePoints
         self.upgrades = upgrades
         self.totalPrestiges = totalPrestiges
         self.lifetimeCoinsEarned = lifetimeCoinsEarned
+        self.lastSeenAt = lastSeenAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.prestigePoints = try container.decodeIfPresent(Int.self, forKey: .prestigePoints) ?? 0
+        self.upgrades = try container.decodeIfPresent(MetaUpgradeLevels.self, forKey: .upgrades) ?? MetaUpgradeLevels()
+        self.totalPrestiges = try container.decodeIfPresent(Int.self, forKey: .totalPrestiges) ?? 0
+        self.lifetimeCoinsEarned = try container.decodeIfPresent(Int.self, forKey: .lifetimeCoinsEarned) ?? 0
+        self.lastSeenAt = try container.decodeIfPresent(Date.self, forKey: .lastSeenAt)
     }
 }
 
@@ -114,5 +129,27 @@ public enum MetaProgressCalculator {
         config: EconomyConfig.MetaConfig
     ) -> Double {
         1.0 + Double(upgrades.moveSpeedBonus) * config.upgrade(for: .moveSpeedBonus).effectPerLevel
+    }
+
+    /// Coins earned while the app was in the background. Negative deltas
+    /// (clock skew, wall-clock jumps) are treated as zero, the delta is
+    /// capped at `maxOfflineSeconds`, and the final value is scaled by meta
+    /// processor-speed and sell-price bonuses. Returns 0 if `lastSeenAt` is
+    /// `nil` (fresh install) or the award would be below `minAwardCoins`.
+    public static func offlineCoins(
+        lastSeenAt: Date?,
+        now: Date,
+        upgrades: MetaUpgradeLevels,
+        config: EconomyConfig.MetaConfig
+    ) -> Int {
+        guard let last = lastSeenAt else { return 0 }
+        let rawDelta = now.timeIntervalSince(last)
+        guard rawDelta > 0 else { return 0 }
+        let clamped = min(rawDelta, max(0, config.offline.maxOfflineSeconds))
+        let processorBoost = 1.0 + Double(upgrades.processorSpeed) * config.upgrade(for: .processorSpeed).effectPerLevel
+        let sellBoost = sellPriceMultiplier(upgrades: upgrades, config: config)
+        let raw = clamped * config.offline.coinsPerSecond * processorBoost * sellBoost
+        let award = Int(raw.rounded(.down))
+        return award >= config.offline.minAwardCoins ? award : 0
     }
 }
