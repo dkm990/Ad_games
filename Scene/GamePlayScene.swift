@@ -39,6 +39,10 @@ final class GamePlayScene: SKScene {
     private let offlineBannerTitleLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
     private let offlineBannerRewardLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
 
+    private let streakBannerNode = SKShapeNode(rectOf: CGSize(width: 320, height: 68), cornerRadius: 10)
+    private let streakBannerTitleLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+    private let streakBannerRewardLabel = SKLabelNode(fontNamed: "AvenirNext-Bold")
+
     private var resourceNodes: [Int: SKShapeNode] = [:]
     private var resourceRespawnTime: [Int: TimeInterval] = [:]
     private var interactionZoneNodes: [Int: SKShapeNode] = [:]
@@ -189,6 +193,7 @@ final class GamePlayScene: SKScene {
         setupUpgradesPanel()
         setupMetaPanel()
         setupOfflineBanner()
+        setupStreakBanner()
         applyUnlockVisualStateFromSession()
         bootstrapProcessorRuntimeFromSession()
         updateProcessorBUnlockState(force: true)
@@ -199,6 +204,7 @@ final class GamePlayScene: SKScene {
 
         refreshHUD()
         presentOfflineRewardIfAvailable()
+        presentStreakOutcomeIfAvailable()
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -1219,6 +1225,60 @@ final class GamePlayScene: SKScene {
         let fadeOut = SKAction.fadeAlpha(to: 0.0, duration: 0.4)
         let hide = SKAction.run { [weak self] in self?.offlineBannerNode.isHidden = true }
         offlineBannerNode.run(SKAction.sequence([fadeIn, hold, fadeOut, hide]))
+    }
+
+    private func setupStreakBanner() {
+        streakBannerNode.fillColor = UIColor(red: 0.22, green: 0.14, blue: 0.10, alpha: 0.96)
+        streakBannerNode.strokeColor = UIColor(red: 0.96, green: 0.66, blue: 0.28, alpha: 1.0)
+        streakBannerNode.lineWidth = 2
+        streakBannerNode.position = CGPoint(x: 0, y: size.height * 0.22)
+        streakBannerNode.zPosition = 1000
+        streakBannerNode.isHidden = true
+        streakBannerNode.alpha = 0
+
+        streakBannerTitleLabel.fontSize = 15
+        streakBannerTitleLabel.fontColor = UIColor(white: 0.92, alpha: 1.0)
+        streakBannerTitleLabel.horizontalAlignmentMode = .center
+        streakBannerTitleLabel.verticalAlignmentMode = .center
+        streakBannerTitleLabel.position = CGPoint(x: 0, y: 14)
+
+        streakBannerRewardLabel.fontSize = 20
+        streakBannerRewardLabel.fontColor = UIColor(red: 1.0, green: 0.88, blue: 0.44, alpha: 1.0)
+        streakBannerRewardLabel.horizontalAlignmentMode = .center
+        streakBannerRewardLabel.verticalAlignmentMode = .center
+        streakBannerRewardLabel.position = CGPoint(x: 0, y: -10)
+
+        streakBannerNode.addChild(streakBannerTitleLabel)
+        streakBannerNode.addChild(streakBannerRewardLabel)
+        cameraNode.addChild(streakBannerNode)
+    }
+
+    private func presentStreakOutcomeIfAvailable() {
+        guard let outcome = orchestrator.consumePendingStreakOutcome() else { return }
+        let title: String
+        switch outcome.transition {
+        case .started:
+            title = "Daily streak started!"
+        case .continued:
+            title = "Day \(outcome.newStreak) streak"
+        case .reset:
+            title = "Streak reset — back on day 1"
+        case .alreadyClaimed:
+            return
+        }
+        streakBannerTitleLabel.text = title
+        if outcome.bonusCoins > 0 {
+            streakBannerRewardLabel.text = "+\(outcome.bonusCoins) coins"
+        } else {
+            streakBannerRewardLabel.text = ""
+        }
+        streakBannerNode.isHidden = false
+        streakBannerNode.removeAllActions()
+        let fadeIn = SKAction.fadeAlpha(to: 1.0, duration: 0.25)
+        let hold = SKAction.wait(forDuration: 3.2)
+        let fadeOut = SKAction.fadeAlpha(to: 0.0, duration: 0.4)
+        let hide = SKAction.run { [weak self] in self?.streakBannerNode.isHidden = true }
+        streakBannerNode.run(SKAction.sequence([fadeIn, hold, fadeOut, hide]))
     }
 
     private func handleMetaUITap(at point: CGPoint) -> Bool {

@@ -173,4 +173,116 @@ final class MetaProgressCalculatorTests: XCTestCase {
         )
         XCTAssertEqual(reward, 0)
     }
+
+    // MARK: - Daily streak
+
+    private var utcCalendar: Calendar {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        return cal
+    }
+
+    private var streakConfig: EconomyConfig.MetaConfig {
+        EconomyConfig.MetaConfig(
+            prestigeMinCoins: 100,
+            prestigeCoinsPerPoint: 25,
+            upgrades: metaConfig.upgrades,
+            streak: EconomyConfig.StreakConfig(
+                baseBonusCoins: 20,
+                bonusPerDay: 10,
+                maxStreakDays: 7
+            )
+        )
+    }
+
+    private func utcDate(year: Int, month: Int, day: Int, hour: Int = 12) -> Date {
+        var comps = DateComponents()
+        comps.year = year
+        comps.month = month
+        comps.day = day
+        comps.hour = hour
+        return utcCalendar.date(from: comps)!
+    }
+
+    func test_streakBonus_grewFromBaseAndCapsAtMaxDays() {
+        XCTAssertEqual(MetaProgressCalculator.streakBonusCoins(streak: 0, config: streakConfig), 0)
+        XCTAssertEqual(MetaProgressCalculator.streakBonusCoins(streak: 1, config: streakConfig), 20)
+        XCTAssertEqual(MetaProgressCalculator.streakBonusCoins(streak: 2, config: streakConfig), 30)
+        XCTAssertEqual(MetaProgressCalculator.streakBonusCoins(streak: 7, config: streakConfig), 80)
+        // Cap: day 10 still pays the day-7 amount
+        XCTAssertEqual(MetaProgressCalculator.streakBonusCoins(streak: 10, config: streakConfig), 80)
+    }
+
+    func test_streakEvaluator_firstCheckIn_startsStreak() {
+        let now = utcDate(year: 2026, month: 4, day: 21)
+        let outcome = DailyStreakEvaluator.evaluate(
+            lastCheckInDay: nil,
+            previousStreak: 0,
+            now: now,
+            calendar: utcCalendar,
+            config: streakConfig
+        )
+        XCTAssertEqual(outcome.transition, .started)
+        XCTAssertEqual(outcome.newStreak, 1)
+        XCTAssertEqual(outcome.bonusCoins, 20)
+    }
+
+    func test_streakEvaluator_sameDay_isAlreadyClaimed() {
+        let today = utcDate(year: 2026, month: 4, day: 21, hour: 3)
+        let later = utcDate(year: 2026, month: 4, day: 21, hour: 23)
+        let outcome = DailyStreakEvaluator.evaluate(
+            lastCheckInDay: today,
+            previousStreak: 5,
+            now: later,
+            calendar: utcCalendar,
+            config: streakConfig
+        )
+        XCTAssertEqual(outcome.transition, .alreadyClaimed)
+        XCTAssertEqual(outcome.newStreak, 5)
+        XCTAssertEqual(outcome.bonusCoins, 0)
+    }
+
+    func test_streakEvaluator_nextDay_continuesStreak() {
+        let yesterday = utcDate(year: 2026, month: 4, day: 20)
+        let today = utcDate(year: 2026, month: 4, day: 21)
+        let outcome = DailyStreakEvaluator.evaluate(
+            lastCheckInDay: yesterday,
+            previousStreak: 3,
+            now: today,
+            calendar: utcCalendar,
+            config: streakConfig
+        )
+        XCTAssertEqual(outcome.transition, .continued)
+        XCTAssertEqual(outcome.newStreak, 4)
+        XCTAssertEqual(outcome.bonusCoins, 50) // 20 + 10 * 3
+    }
+
+    func test_streakEvaluator_skipDay_resetsToOne() {
+        let twoDaysAgo = utcDate(year: 2026, month: 4, day: 19)
+        let today = utcDate(year: 2026, month: 4, day: 21)
+        let outcome = DailyStreakEvaluator.evaluate(
+            lastCheckInDay: twoDaysAgo,
+            previousStreak: 6,
+            now: today,
+            calendar: utcCalendar,
+            config: streakConfig
+        )
+        XCTAssertEqual(outcome.transition, .reset)
+        XCTAssertEqual(outcome.newStreak, 1)
+        XCTAssertEqual(outcome.bonusCoins, 20)
+    }
+
+    func test_streakEvaluator_clockRewind_resetsToOne() {
+        let tomorrow = utcDate(year: 2026, month: 4, day: 22)
+        let today = utcDate(year: 2026, month: 4, day: 21)
+        let outcome = DailyStreakEvaluator.evaluate(
+            lastCheckInDay: tomorrow,
+            previousStreak: 4,
+            now: today,
+            calendar: utcCalendar,
+            config: streakConfig
+        )
+        XCTAssertEqual(outcome.transition, .reset)
+        XCTAssertEqual(outcome.newStreak, 1)
+    }
 }

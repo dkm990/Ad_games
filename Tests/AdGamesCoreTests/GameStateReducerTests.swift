@@ -218,4 +218,56 @@ final class GameStateReducerTests: XCTestCase {
         reducer.send(.recalculateGuidance)
         XCTAssertEqual(reducer.meta.lastSeenAt, clockValue)
     }
+
+    // MARK: - Daily streak
+
+    private func utcCalendar() -> Calendar {
+        var cal = Calendar(identifier: .gregorian)
+        cal.timeZone = TimeZone(identifier: "UTC")!
+        return cal
+    }
+
+    private func utcDate(year: Int, month: Int, day: Int, hour: Int = 12) -> Date {
+        var comps = DateComponents()
+        comps.year = year
+        comps.month = month
+        comps.day = day
+        comps.hour = hour
+        return utcCalendar().date(from: comps)!
+    }
+
+    func test_checkInDaily_firstTime_startsStreakAndAwardsCoins() {
+        var now = utcDate(year: 2026, month: 4, day: 21)
+        let reducer = GameStateReducer(
+            config: makeConfig(),
+            clock: { now },
+            calendar: utcCalendar()
+        )
+        reducer.send(.checkInDaily)
+        XCTAssertEqual(reducer.meta.dailyStreak, 1)
+        XCTAssertEqual(reducer.state.coins, 20) // base bonus from default StreakConfig
+        XCTAssertEqual(reducer.lastStreakOutcome?.transition, .started)
+
+        // Re-dispatch on the same day should be a no-op
+        now = utcDate(year: 2026, month: 4, day: 21, hour: 23)
+        reducer.send(.checkInDaily)
+        XCTAssertEqual(reducer.meta.dailyStreak, 1)
+        XCTAssertEqual(reducer.state.coins, 20)
+        XCTAssertEqual(reducer.lastStreakOutcome?.transition, .alreadyClaimed)
+    }
+
+    func test_checkInDaily_consecutiveDays_incrementStreak() {
+        var now = utcDate(year: 2026, month: 4, day: 21)
+        let reducer = GameStateReducer(
+            config: makeConfig(),
+            clock: { now },
+            calendar: utcCalendar()
+        )
+        reducer.send(.checkInDaily)
+        now = utcDate(year: 2026, month: 4, day: 22)
+        reducer.send(.checkInDaily)
+        XCTAssertEqual(reducer.meta.dailyStreak, 2)
+        // base (20) for day 1 + continued (30) for day 2
+        XCTAssertEqual(reducer.state.coins, 50)
+    }
 }
